@@ -30,6 +30,24 @@
     font-family: "Bebas Neue", Impact, sans-serif;
     font-size: 22px; letter-spacing: 0.5px; line-height: 1;
   }
+  .logo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.logo-link:hover {
+  opacity: 0.85;
+}
+.back-arrow {
+  font-family: ui-monospace, monospace;
+  font-size: 18px;
+  color: #e07a3c;
+  font-weight: 500;
+}
   #logo .smart { color: #e07a3c; }
   #status {
     font-family: ui-monospace, "SF Mono", "DM Mono", Consolas, monospace;
@@ -189,7 +207,13 @@
 <!-- ────────── UI OVERLAY ────────── -->
 <div id="ui">
   <div id="top-bar">
-    <div id="logo">GEAR<span class="smart">SMART</span> · FIT</div>
+    <a href="https://gear-smart.vercel.app/index.html"
+      id="logo"
+      class="logo-link"
+      title="Back to GearSmart">
+      <span class="back-arrow">←</span>
+      Gear<span class="smart">Smart</span>
+    </a>
     <div id="status"><span class="dot"></span><span id="status-text">SCANNING</span></div>
   </div>
 
