@@ -1,0 +1,61 @@
+{
+  "product": "Patagonia Black Hole MLC",
+  "user_measurements": { "torso_in": 19, "shoulder_width_in": 16 },
+  "generated_by": "Claude tool_use · /api/fit-guide · stub (week 13)",
+  "marker_placement": "Tape the printed marker to the front-center of the hip belt before Step 1. You'll move it to the shoulder strap for Step 2, the load lifter for Step 3, then to the sternum strap clip for Step 4.",
+  "demo_notes": "4 steps for the Wk 13 demo. Torso-length check is authored in /docs/torso-check-future.md as future scope — cut from runtime because AR can't show the user their own back, and slide 5 of the proposal sets 'body-relative AR earns its place' as the inclusion test. Future v2: handle this via friend-mode or rear-camera flip.",
+  "steps": [
+    {
+      "name": "Hip belt",
+      "title": "SET THE HIP BELT",
+      "instruction": "Run your thumbs along the top of your hip bones — feel that bony ridge? That's where the top edge of the padded belt should sit. Not on your waist, not under your hips. Cinch it snug, then wiggle side to side. If the pack slides, tighten more. If your breath catches, ease off a notch.",
+      "target": "iliac_crest",
+      "tolerance_in": 1.0,
+      "marker_placement_hint": "Marker on front-center of hip belt",
+      "overlay": {
+        "targetZone": { "position": [0, 0.45, 0], "size": [1.2, 0.22], "label": "ILIAC CREST" },
+        "arrow":      { "from": [0, 0, 0], "to": [0, 0.45, 0] },
+        "currentLabel": "BELT HERE"
+      }
+    },
+    {
+      "name": "Shoulder straps",
+      "title": "SNUG THE SHOULDERS",
+      "instruction": "With the hip belt doing the work, pull the shoulder straps down and back until they make full contact along your shoulders and chest. Don't yank — you're not lifting the pack, just holding it close. Slide your finger under the strap at the collarbone. If it slips in easily, you're good. If it's tight to your skin, you've pulled weight off your hips. Loosen until it breathes.",
+      "target": "shoulder_anchor",
+      "tolerance_in": 1.5,
+      "marker_placement_hint": "Marker on front of left shoulder strap, mid-chest height",
+      "overlay": {
+        "targetZone": { "position": [-0.05, 0.35, 0], "size": [0.9, 0.18], "label": "STRAP ANCHOR" },
+        "arrow":      { "from": [0, 0, 0], "to": [-0.05, 0.35, 0] },
+        "currentLabel": "STRAP HERE"
+      }
+    },
+    {
+      "name": "Load lifters",
+      "title": "PULL THE LOAD LIFTERS",
+      "instruction": "Find the small straps angling up from the top of each shoulder strap to the pack body. Pull both, evenly, until the top of the pack tips slightly toward you and the straps sit at roughly 45°. Stop the moment you feel the shoulder straps lift off your shoulders — that means you've gone too far. The pack should feel like it's settling into you, not pulling away.",
+      "target": "load_lifter_45_degrees",
+      "tolerance_in": 1.0,
+      "marker_placement_hint": "Marker on top of the left shoulder strap, near the load-lifter anchor",
+      "overlay": {
+        "targetZone": { "position": [0.45, 0.45, 0], "size": [0.5, 0.5], "label": "45° ANGLE" },
+        "arrow":      { "from": [0, 0, 0], "to": [0.45, 0.45, 0] },
+        "currentLabel": "LIFTER HERE"
+      }
+    },
+    {
+      "name": "Sternum strap",
+      "title": "CLIP THE STERNUM STRAP",
+      "instruction": "Slide the clip up so it sits about a finger's width below your collarbone — not on your throat, not across your chest. Click it shut, then snug just until the shoulder straps stop spreading outward. Take a full breath. If you can't, back it off. The strap's job is to keep the straps from sliding off your shoulders, nothing more.",
+      "target": "sternum_one_inch_below_collarbone",
+      "tolerance_in": 1.0,
+      "marker_placement_hint": "Marker on the sternum strap clip",
+      "overlay": {
+        "targetZone": { "position": [0, 0.55, 0], "size": [1.0, 0.16], "label": "1 IN BELOW COLLARBONE" },
+        "arrow":      { "from": [0, 0, 0], "to": [0, 0.55, 0] },
+        "currentLabel": "CLIP HERE"
+      }
+    }
+  ]
+}

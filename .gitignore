@@ -1,0 +1,21 @@
+# Local HTTPS certs — never commit these
+cert.pem
+key.pem
+*.pem
+
+# Env vars — secrets go in Vercel dashboard, not git
+.env
+.env.local
+.env.*.local
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
+
+# Vercel build output
+.vercel/
+node_modules/
