@@ -420,7 +420,7 @@
     await new Promise(resolve => sceneEl.addEventListener('loaded', resolve, { once: true }));
   }
 
-  const arSystem = sceneEl.systems['mindar-image-system'];
+  const arSystem = sceneEl.components['mindar-image'];
   if (!arSystem) {
     alert('AR system not initialized. Try reloading the page.');
     return;
