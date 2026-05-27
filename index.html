@@ -411,16 +411,25 @@
   // ───────── Splash & start ─────────
   document.getElementById('start-btn').addEventListener('click', async () => {
     document.getElementById('splash').classList.add('hidden');
-    await loadFitGuide();
+
+    // Start camera FIRST, while the user-gesture is still fresh.
+    // iOS Safari needs getUserMedia to fire in the same synchronous-ish chain
+    // as the tap, or it'll silently deny.
     const sceneEl = document.querySelector('a-scene');
     const arSystem = sceneEl.systems['mindar-image-system'];
-    try {
-      await arSystem.start();
-      console.log('MindAR started');
-    } catch (e) {
-      console.error('Could not start MindAR:', e);
-      alert('Could not start camera. On iOS Safari, make sure camera permissions are granted. The page must be served over HTTPS or localhost.');
-    }
+
+    const cameraPromise = arSystem.start().then(
+      () => console.log('MindAR started'),
+      (e) => {
+        console.error('Could not start MindAR:', e);
+        alert('Could not start camera. On iOS Safari, check Settings → Safari → Camera. The page must be served over HTTPS.');
+      }
+    );
+
+    // Load fit guide in parallel — it doesn't need the camera.
+    const guidePromise = loadFitGuide();
+
+    await Promise.all([cameraPromise, guidePromise]);
   });
 
   // ───────── Tracking events ─────────
