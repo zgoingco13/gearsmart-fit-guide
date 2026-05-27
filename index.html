@@ -412,19 +412,19 @@
  document.getElementById('start-btn').addEventListener('click', async () => {
   document.getElementById('splash').classList.add('hidden');
 
-  const sceneEl = document.querySelector('a-scene');
+const sceneEl = document.querySelector('a-scene');
 
-  // Wait for scene to finish loading so systems['mindar-image-system'] exists.
-  // If already loaded, this resolves immediately.
-  if (!sceneEl.hasLoaded) {
-    await new Promise(resolve => sceneEl.addEventListener('loaded', resolve, { once: true }));
-  }
+// Wait for scene to finish loading so systems['mindar-image-system'] is registered.
+if (!sceneEl.hasLoaded) {
+  await new Promise(resolve => sceneEl.addEventListener('loaded', resolve, { once: true }));
+}
 
-  const arSystem = sceneEl.components['mindar-image'];
-  if (!arSystem) {
-    alert('AR system not initialized. Try reloading the page.');
-    return;
-  }
+const arSystem = sceneEl.systems['mindar-image-system'];
+if (!arSystem || typeof arSystem.start !== 'function') {
+  console.error('MindAR system not registered. systems:', sceneEl.systems);
+  alert('AR system not initialized. Try reloading the page.');
+  return;
+}
 
   // Start camera FIRST (preserves the user-gesture for iOS Safari getUserMedia).
   const cameraPromise = arSystem.start().then(
