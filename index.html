@@ -422,15 +422,24 @@
   // sometimes puts it behind the WebGL canvas. Force it on top of the page
   // background but under the AR overlay.
   const v = document.querySelector('video');
-  if (v) {
-    v.style.position = 'fixed';
-    v.style.top = '0';
-    v.style.left = '0';
-    v.style.width = '100vw';
-    v.style.height = '100vh';
-    v.style.objectFit = 'cover';
-    v.style.zIndex = '0';
-  }
+if (v) {
+  v.style.position = 'fixed';
+  v.style.top = '0';
+  v.style.left = '0';
+  v.style.width = '100vw';
+  v.style.height = '100vh';
+  v.style.objectFit = 'cover';
+  v.style.zIndex = '0';
+}
+
+// Ensure WebGL canvas (AR geometry) sits above video but below #ui (z-index: 10)
+const canvas = document.querySelector('a-scene canvas');
+if (canvas) {
+  canvas.style.position = 'fixed';
+  canvas.style.top = '0';
+  canvas.style.left = '0';
+  canvas.style.zIndex = '5';
+}
 });
 
   // ───────── Tracking events ─────────
