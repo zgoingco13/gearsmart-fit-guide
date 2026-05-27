@@ -173,7 +173,7 @@
 
 <!-- ────────── A-FRAME SCENE ────────── -->
 <a-scene
-  mindar-image="imageTargetSrc: ./marker.mind; autoStart: false; uiScanning: no; uiLoading: no; uiError: no; maxTrack: 1; warmupTolerance: 5; missTolerance: 5;"
+  mindar-image="imageTargetSrc: ./marker.mind; autoStart: true; uiScanning: no; uiLoading: no; uiError: no; maxTrack: 1; warmupTolerance: 5; missTolerance: 5;"
   color-space="sRGB"
   renderer="colorManagement: true, physicallyCorrectLights: true, alpha: true"
   vr-mode-ui="enabled: false"
@@ -412,36 +412,25 @@
  document.getElementById('start-btn').addEventListener('click', async () => {
   document.getElementById('splash').classList.add('hidden');
 
-const sceneEl = document.querySelector('a-scene');
+  // MindAR auto-starts on scene load in this build, so we don't manually start.
+  // Just load the fit guide; the camera should already be running.
+  await loadFitGuide();
+  if (isTracking) renderStep(currentStep);
 
-// Wait for scene to finish loading so systems['mindar-image-system'] is registered.
-if (!sceneEl.hasLoaded) {
-  await new Promise(resolve => sceneEl.addEventListener('loaded', resolve, { once: true }));
-}
-
-const arSystem = sceneEl.systems['mindar-image-system'];
-if (!arSystem || typeof arSystem.start !== 'function') {
-  console.error('MindAR system not registered. systems:', sceneEl.systems);
-  alert('AR system not initialized. Try reloading the page.');
-  return;
-}
-
-  // Start camera FIRST (preserves the user-gesture for iOS Safari getUserMedia).
-  const cameraPromise = arSystem.start().then(
-    () => console.log('MindAR started'),
-    (e) => {
-      console.error('Could not start MindAR:', e);
-      alert('Could not start camera. On iOS Safari, check Settings → Safari → Camera. The page must be served over HTTPS.');
-    }
-  );
-
-  // Load fit guide in parallel — doesn't need the camera.
-  const guidePromise = loadFitGuide().then(() => {
-    // If marker is already locked when guide finishes loading, re-render.
-    if (isTracking) renderStep(currentStep);
-  });
-
-  await Promise.all([cameraPromise, guidePromise]);
+  // Belt-and-suspenders: force the MindAR-injected video to be visible.
+  // MindAR mounts a <video> element on the page but its CSS layering on iOS
+  // sometimes puts it behind the WebGL canvas. Force it on top of the page
+  // background but under the AR overlay.
+  const v = document.querySelector('video');
+  if (v) {
+    v.style.position = 'fixed';
+    v.style.top = '0';
+    v.style.left = '0';
+    v.style.width = '100vw';
+    v.style.height = '100vh';
+    v.style.objectFit = 'cover';
+    v.style.zIndex = '0';
+  }
 });
 
   // ───────── Tracking events ─────────
