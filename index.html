@@ -409,28 +409,40 @@
   }
 
   // ───────── Splash & start ─────────
-  document.getElementById('start-btn').addEventListener('click', async () => {
-    document.getElementById('splash').classList.add('hidden');
+ document.getElementById('start-btn').addEventListener('click', async () => {
+  document.getElementById('splash').classList.add('hidden');
 
-    // Start camera FIRST, while the user-gesture is still fresh.
-    // iOS Safari needs getUserMedia to fire in the same synchronous-ish chain
-    // as the tap, or it'll silently deny.
-    const sceneEl = document.querySelector('a-scene');
-    const arSystem = sceneEl.systems['mindar-image-system'];
+  const sceneEl = document.querySelector('a-scene');
 
-    const cameraPromise = arSystem.start().then(
-      () => console.log('MindAR started'),
-      (e) => {
-        console.error('Could not start MindAR:', e);
-        alert('Could not start camera. On iOS Safari, check Settings → Safari → Camera. The page must be served over HTTPS.');
-      }
-    );
+  // Wait for scene to finish loading so systems['mindar-image-system'] exists.
+  // If already loaded, this resolves immediately.
+  if (!sceneEl.hasLoaded) {
+    await new Promise(resolve => sceneEl.addEventListener('loaded', resolve, { once: true }));
+  }
 
-    // Load fit guide in parallel — it doesn't need the camera.
-    const guidePromise = loadFitGuide();
+  const arSystem = sceneEl.systems['mindar-image-system'];
+  if (!arSystem) {
+    alert('AR system not initialized. Try reloading the page.');
+    return;
+  }
 
-    await Promise.all([cameraPromise, guidePromise]);
+  // Start camera FIRST (preserves the user-gesture for iOS Safari getUserMedia).
+  const cameraPromise = arSystem.start().then(
+    () => console.log('MindAR started'),
+    (e) => {
+      console.error('Could not start MindAR:', e);
+      alert('Could not start camera. On iOS Safari, check Settings → Safari → Camera. The page must be served over HTTPS.');
+    }
+  );
+
+  // Load fit guide in parallel — doesn't need the camera.
+  const guidePromise = loadFitGuide().then(() => {
+    // If marker is already locked when guide finishes loading, re-render.
+    if (isTracking) renderStep(currentStep);
   });
+
+  await Promise.all([cameraPromise, guidePromise]);
+});
 
   // ───────── Tracking events ─────────
   window.addEventListener('DOMContentLoaded', () => {
