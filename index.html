@@ -1,20 +1,27 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>GearSmart · Fit Guide v0.2</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>GearSmart · Fit Guide v2 (Pose)</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<!-- A-Frame + MindAR (image tracking flavor) loaded from CDN -->
-<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+<!-- TFJS + pose-detection via CDN (UMD globals: tf, poseDetection). Pinned. -->
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@4.22.0/dist/tf-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@4.22.0/dist/tf-converter.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.22.0/dist/tf-backend-webgl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; overflow: hidden; background: #1a1310; font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif; color: #faf3e3; }
+  html, body { height: 100%; overflow: hidden; background: #1a1310; font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif; color: #faf3e3; -webkit-tap-highlight-color: transparent; }
+
+  /* ===== camera stage ===== */
+  #stage { position: fixed; inset: 0; z-index: 0; background: #000; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; visibility: hidden; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
 
   /* ===== overlay UI ===== */
   #ui {
@@ -33,24 +40,9 @@
     font-family: "Bebas Neue", Impact, sans-serif;
     font-size: 22px; letter-spacing: 0.5px; line-height: 1;
   }
-  .logo-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: inherit;
-  text-decoration: none;
-  cursor: pointer;
-  transition: opacity 0.15s;
-}
-.logo-link:hover {
-  opacity: 0.85;
-}
-.back-arrow {
-  font-family: ui-monospace, monospace;
-  font-size: 18px;
-  color: #e07a3c;
-  font-weight: 500;
-}
+  .logo-link { display: inline-flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; cursor: pointer; transition: opacity 0.15s; }
+  .logo-link:hover { opacity: 0.85; }
+  .back-arrow { font-family: ui-monospace, monospace; font-size: 18px; color: #e07a3c; font-weight: 500; }
   #logo .smart { color: #e07a3c; }
   #status {
     font-family: ui-monospace, "SF Mono", "DM Mono", Consolas, monospace;
@@ -58,60 +50,100 @@
     padding: 5px 10px; border-radius: 16px;
     background: rgba(243, 234, 216, 0.1); color: rgba(243, 234, 216, 0.7);
   }
-  #status.tracking {
-    background: #c8f53e; color: #1a1310; font-weight: 600;
-  }
+  #status.tracking { background: #c8f53e; color: #1a1310; font-weight: 600; }
   #status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: middle; opacity: 0.6; }
   #status.tracking .dot { opacity: 1; }
 
-  /* ===== marker-placement hint (appears between top bar and coach card) ===== */
-  #marker-hint {
-    margin: 0 16px;
-    padding: 8px 14px;
-    background: rgba(200, 245, 62, 0.12);
-    border: 1px solid rgba(200, 245, 62, 0.35);
-    border-radius: 10px;
-    font-family: ui-monospace, monospace;
-    font-size: 11px; line-height: 1.4;
-    color: #c8f53e;
-    letter-spacing: 0.4px;
-    pointer-events: auto;
-    transition: opacity 0.3s ease;
-  }
-  #marker-hint.hidden { opacity: 0; pointer-events: none; }
-  #marker-hint::before {
-    content: "↻ MOVE MARKER · ";
-    font-weight: 600;
-    opacity: 0.8;
-  }
-
-  /* ===== bottom coaching card ===== */
+  /* ===== coach card (collapsible bottom sheet) ===== */
   #coach {
     margin: 16px;
     background: rgba(26, 19, 16, 0.92); backdrop-filter: blur(8px);
     border-radius: 14px; border: 1px solid rgba(224, 122, 60, 0.4);
     border-left: 4px solid #e07a3c;
-    padding: 16px 18px 18px;
     pointer-events: auto;
-    transition: opacity 0.3s ease;
+    display: flex; flex-direction: column;
+    position: relative; /* anchor torso progress bar */
+    max-height: 40vh;
+    overflow: hidden;
+    transition: opacity 0.3s ease, max-height 0.25s ease;
   }
-  #coach.hidden { opacity: 0.55; }
+  #coach.hidden { opacity: 0; pointer-events: none; }
+  #coach.collapsed { max-height: 88px; } /* slim bar — header only (incl. optional hint line) */
+
+  #coach-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer; user-select: none;
+    flex: 0 0 auto;
+  }
+  #coach-header-text { flex: 1 1 auto; min-width: 0; }
   #coach-step {
     font-family: ui-monospace, monospace;
     font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase;
-    color: #e07a3c; margin-bottom: 6px;
+    color: #e07a3c; margin-bottom: 3px;
+    display: flex; align-items: center; gap: 8px;
+    min-width: 0;
   }
+  #coach-step-text {
+    flex: 1 1 auto; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Locked torso bucket — matches the TRACKING pill (lime bg, dark text) */
+  .result-chip {
+    flex: 0 0 auto;
+    display: inline-block;
+    background: #c8f53e; color: #1a1310;
+    font-weight: 600; letter-spacing: 1.4px;
+    padding: 2px 8px; border-radius: 12px;
+  }
+  @keyframes chip-pulse {
+    0%   { transform: scale(0.7); opacity: 0; }
+    35%  { transform: scale(1.3); opacity: 1; }
+    60%  { transform: scale(0.95); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .result-chip.pulse { animation: chip-pulse 0.55s ease-out; transform-origin: center; }
   #coach-title {
     font-family: "Bebas Neue", Impact, sans-serif;
-    font-size: 24px; line-height: 1; margin-bottom: 8px;
-    letter-spacing: 0.4px;
+    font-size: 22px; line-height: 1; letter-spacing: 0.4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  /* Gesture hint line shown beneath the title in the slim bar — per-step prompt
+     while the gesture isn't detected, "HOLD THE POSE" amber while filling,
+     "CONFIRMED" lime briefly on advance. Hidden when empty. */
+  #coach-hint {
+    margin-top: 5px;
+    font-family: ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+    color: rgba(243, 234, 216, 0.92);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: color 0.15s ease;
+  }
+  #coach-hint:empty { display: none; }
+  #coach-hint.holding   { color: #ffd166; }   /* amber while held */
+  #coach-hint.confirmed { color: #c8f53e; }   /* lime on confirm */
+  #toggle-btn {
+    background: transparent; border: none; cursor: pointer;
+    color: rgba(243, 234, 216, 0.7); font-size: 18px; line-height: 1;
+    padding: 6px 8px; border-radius: 6px;
+    transition: transform 0.25s ease;
+    flex: 0 0 auto;
+  }
+  #coach:not(.collapsed) #toggle-btn { transform: rotate(180deg); }
+
   #coach-body {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto;
+    padding: 0 14px 14px;
+  }
+  #coach.collapsed #coach-body { display: none; }
+  #coach-instruction {
     font-size: 14px; line-height: 1.45;
     color: rgba(243, 234, 216, 0.85);
     margin-bottom: 12px;
   }
   #coach-controls { display: flex; gap: 8px; }
+
   .btn {
     flex: 1;
     padding: 10px 14px; border-radius: 8px;
@@ -121,13 +153,43 @@
     border: 1px solid rgba(243, 234, 216, 0.3);
     cursor: pointer; touch-action: manipulation;
   }
-  .btn.primary {
-    background: #e07a3c; color: #1a1310; border-color: #e07a3c;
-    font-weight: 600;
-  }
+  .btn.primary { background: #e07a3c; color: #1a1310; border-color: #e07a3c; font-weight: 600; }
   .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* Header-Next: compact, doesn't flex to full width like the body buttons */
+  #next-btn { flex: 0 0 auto; padding: 8px 14px; }
 
-  /* ===== startup splash ===== */
+  /* Hold progress — thin bar pinned to the bottom edge of the card. Used by
+     both the torso measurement and the per-gesture confirm hold. Color logic:
+     lime by default (good/filling for torso), amber via .invalid (used for
+     decay on torso and for the duration of a gesture hold). */
+  #step-progress {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 3px;
+    background: rgba(243, 234, 216, 0.12);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  #step-progress.visible { opacity: 1; }
+  #step-progress-fill {
+    height: 100%; width: 0;
+    background: #c8f53e;
+    transition: width 0.12s linear, background 0.2s ease;
+  }
+  #step-progress.invalid #step-progress-fill { background: #ffd166; }
+
+  /* ===== debug HUD (small, top-right, dismissible) ===== */
+  #hud {
+    position: fixed; top: 70px; right: 16px; z-index: 9;
+    font-family: ui-monospace, monospace;
+    font-size: 10px; line-height: 1.5;
+    background: rgba(0, 0, 0, 0.55); padding: 6px 9px; border-radius: 6px;
+    white-space: pre; color: #e8eaed; pointer-events: none;
+    opacity: 0.7;
+  }
+  #hud.hidden { display: none; }
+
+  /* ===== splash ===== */
   #splash {
     position: fixed; inset: 0; z-index: 20;
     background: #1a1310;
@@ -135,15 +197,9 @@
     padding: 32px; text-align: center;
   }
   #splash.hidden { display: none; }
-  #splash h1 {
-    font-family: "Bebas Neue", Impact, sans-serif;
-    font-size: 56px; line-height: 1; margin-bottom: 8px; letter-spacing: 0.5px;
-  }
+  #splash h1 { font-family: "Bebas Neue", Impact, sans-serif; font-size: 56px; line-height: 1; margin-bottom: 8px; letter-spacing: 0.5px; }
   #splash h1 .accent { color: #e07a3c; }
-  #splash p {
-    color: rgba(243, 234, 216, 0.7);
-    margin-bottom: 32px; max-width: 320px; line-height: 1.5; font-size: 14px;
-  }
+  #splash p { color: rgba(243, 234, 216, 0.7); margin-bottom: 32px; max-width: 320px; line-height: 1.5; font-size: 14px; }
   #start-btn {
     background: #e07a3c; color: #1a1310;
     border: none; border-radius: 999px;
@@ -152,100 +208,175 @@
     font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 600;
     cursor: pointer;
   }
-  #splash .small {
-    margin-top: 24px; font-size: 11px; color: rgba(243, 234, 216, 0.4);
-    font-family: ui-monospace, monospace; letter-spacing: 1.2px; text-transform: uppercase;
-  }
-
-  /* hide a-frame's default debug UI */
-  .a-enter-vr, .a-orientation-modal { display: none !important; }
+  #splash #start-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #splash .small { margin-top: 24px; font-size: 11px; color: rgba(243, 234, 216, 0.4); font-family: ui-monospace, monospace; letter-spacing: 1.2px; text-transform: uppercase; }
 </style>
 </head>
 <body>
 
 <!-- ────────── SPLASH ────────── -->
 <div id="splash">
-  <h1>FIT GUIDE<br><span class="accent">v0.2</span></h1>
-  <p>Point your phone at the GearSmart fit marker taped to your pack. Overlays will appear once the marker is recognized.</p>
-  <button id="start-btn">Start camera</button>
-  <div class="small">Prototype · Z Goingco · Wk 13</div>
+  <h1>FIT GUIDE<br><span class="accent">v2</span></h1>
+  <p>Front camera, no marker. Stand back so your shoulders and hips both fit in frame — we'll measure your torso first, then coach you through fitting your pack.</p>
+  <button id="start-btn" disabled>Loading model…</button>
+  <div class="small">Prototype · Z Goingco · Pose Mode</div>
 </div>
 
-<!-- ────────── A-FRAME SCENE ────────── -->
-<a-scene
-  mindar-image="imageTargetSrc: ./marker.mind; autoStart: true; uiScanning: no; uiLoading: no; uiError: no; maxTrack: 1; warmupTolerance: 5; missTolerance: 5;"
-  color-space="sRGB"
-  renderer="colorManagement: true, physicallyCorrectLights: true, alpha: true"
-  vr-mode-ui="enabled: false"
-  device-orientation-permission-ui="enabled: false"
->
-  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-  <!-- Reusable assets so we don't refetch the font per primitive -->
-  <a-assets>
-    <!-- font reference used by buildOverlay() -->
-  </a-assets>
-
-  <!-- The tracked target.
-       NOTE: All AR geometry is now built dynamically inside #overlay-group
-       by buildOverlay() in JS. The pulsing ring stays static — it's the
-       "you found the marker" confirmation and persists across all steps. -->
-  <a-entity id="target" mindar-image-target="targetIndex: 0">
-
-    <!-- Static: pulsing ring around the marker, same on every step -->
-    <a-ring
-      color="#e07a3c"
-      radius-inner="0.55"
-      radius-outer="0.6"
-      opacity="0.85"
-      animation="property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 1200; loop: true; easing: easeInOutSine"
-    ></a-ring>
-
-    <!-- Dynamic: per-step overlay group, rebuilt by buildOverlay() -->
-    <a-entity id="overlay-group"></a-entity>
-
-  </a-entity>
-</a-scene>
+<!-- ────────── CAMERA STAGE ────────── -->
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="canvas"></canvas>
+</div>
 
 <!-- ────────── UI OVERLAY ────────── -->
 <div id="ui">
   <div id="top-bar">
     <a href="https://gear-smart.vercel.app/index.html"
-      id="logo"
-      class="logo-link"
-      title="Back to GearSmart">
+       id="logo"
+       class="logo-link"
+       title="Back to GearSmart">
       <span class="back-arrow">←</span>
       <span class="logo-wordmark">Gear<span class="smart">Smart</span></span>
     </a>
-    <div id="status"><span class="dot"></span><span id="status-text">SCANNING</span></div>
+    <div id="status"><span class="dot"></span><span id="status-text">LOADING</span></div>
   </div>
 
-  <!-- Marker placement hint slot — populated per step, hidden when same as previous -->
-  <div id="marker-hint" class="hidden"></div>
-
   <div id="coach" class="hidden">
-    <div id="coach-step">Step 1 · Loading…</div>
-    <div id="coach-title">LOCATE YOUR MARKER</div>
+    <div id="coach-header">
+      <div id="coach-header-text">
+        <div id="coach-step">
+          <span id="coach-step-text">Step 1 · Loading…</span>
+          <span id="result-chip" class="result-chip" style="display:none"></span>
+        </div>
+        <div id="coach-title">GET IN FRAME</div>
+        <div id="coach-hint"></div>
+      </div>
+      <button id="toggle-btn" aria-label="Toggle details">▾</button>
+      <button class="btn primary" id="next-btn">Next →</button>
+    </div>
     <div id="coach-body">
-      Tape the printed marker to your hip belt, then frame yourself in a mirror.
+      <div id="coach-instruction">Stand back so your full shoulders and hips both fit in the camera.</div>
+      <div id="coach-controls">
+        <button class="btn" id="prev-btn" disabled>← Prev</button>
+        <button class="btn" id="remeasure-btn" style="display:none">↻ Re-measure</button>
+      </div>
     </div>
-    <div id="coach-controls">
-      <button class="btn" id="prev-btn" disabled>← Prev</button>
-      <button class="btn primary" id="next-btn">Next step →</button>
-    </div>
+    <div id="step-progress"><div id="step-progress-fill"></div></div>
   </div>
 </div>
 
+<div id="hud">init…</div>
+
 <script>
+  // ───────── MoveNet COCO-17 keypoint names (index → name) ─────────
+  const KP_NAMES = ['nose','left_eye','right_eye','left_ear','right_ear',
+    'left_shoulder','right_shoulder','left_elbow','right_elbow','left_wrist','right_wrist',
+    'left_hip','right_hip','left_knee','right_knee','left_ankle','right_ankle'];
+  const KP = Object.fromEntries(KP_NAMES.map((n, i) => [n, i]));
+
+  // The /api/fit-guide endpoint enforces exactly 4 gear steps (Hip belt → Sternum).
+  // The torso read is the 5th step in the user flow but the FIRST shown, so we
+  // prepend it client-side instead of touching the schema.
+  const TORSO_STEP = {
+    name: "Torso",
+    title: "READ YOUR TORSO",
+    instruction: "Stand straight and face the camera. Drop your arms to your sides so the camera sees both your shoulders and your hips. Hold still for a few seconds — we're measuring the distance from your shoulder line down to your hip line, then comparing it to how wide your shoulders are. That ratio tells us long, regular, or short.",
+    target: "torso_length_bucket",
+    marker_placement_hint: null,
+    overlay: null
+  };
+
   // ───────── State ─────────
   let fitGuide = null;
   let currentStep = 0;
-  let isTracking = false;
-  let lastMarkerHint = null; // so we only show the "move marker" prompt when it changes
 
-  // ───────── Load fit guide from endpoint, fall back to mock ─────────
+  let detector = null;
+  let stream = null;
+  let running = false;
+  let lastT = performance.now(), fps = 0;
+  let trackedCount = 0;
+  const MIN_CONF = 0.3;
+
+  // Coach card collapse state. Auto-collapses once per step on the first
+  // TRACKING transition so the user can see their body; manual taps after
+  // that win until the next step change (which resets the flag).
+  let coachExpanded = true;
+  let autoCollapsedThisStep = false;
+  let wasTracking = false;
+
+  // Torso measurement: ratio = shoulder-mid→hip-mid distance / shoulder width,
+  // in native video coords. Mirror-invariant (ratio of distances).
+  // Wall-clock hold: 5s of continuously-valid stance. Progress decays on break,
+  // and samples reset only once progress fully drains. Median is locked.
+  const TORSO_HOLD_MS = 5000;
+  const TORSO_DECAY_RATE = 1.5; // decay 1.5× faster than fill
+  // Thresholds for the locked median ratio (2D, facing camera straight on).
+  const TORSO_SHORT_MAX = 1.05;
+  const TORSO_LONG_MIN = 1.20;
+  let torsoSamples = [];
+  let torsoHoldProgress = 0; // 0..1
+  let torsoLastFrameT = null;
+  let torsoResult = null; // 'Short' | 'Regular' | 'Long' once locked
+
+  // ───────── Gesture-advance knobs (gear steps only; never the torso step) ─────────
+  // All distance thresholds are multiplied by shoulder-width-in-pixels at
+  // detection time, so they're distance-invariant.
+  const GESTURE_HOLD_MS = 1200;
+  const GESTURE_DECAY_RATE = 1.5;
+  // Per-gesture wrist-to-anchor "near" threshold, × shoulder width S.
+  // Hip belt is loose enough to catch the natural akimbo pose (hands on
+  // sides, elbows out). If arms-hanging-straight-down false-fires, drop to 0.45.
+  const GESTURE_NEAR_FACTORS = {
+    'Hip belt':        0.50,
+    'Shoulder straps': 0.40,
+    'Load lifters':    0.40,
+    'Sternum strap':   0.40,
+  };
+  const GESTURE_STERNUM_MID_FACTOR = 0.25;   // sternum: wrist-mid → shoulder-mid horizontal slack
+  // Per-step ON/OFF — flip a gesture OFF here if it's flaky and the step
+  // falls back to tap-only with zero other code changes.
+  const GESTURE_ENABLED = {
+    'Hip belt':        true,
+    'Shoulder straps': true,
+    'Load lifters':    true,
+    'Sternum strap':   true,
+  };
+  const GESTURE_HINTS = {
+    'Hip belt':        '✋ Hands on hips',
+    'Shoulder straps': '✋ Hands on shoulders',
+    'Load lifters':    '🙌 Hands above shoulders',
+    'Sternum strap':   '🤝 Hands together at chest',
+  };
+  let gestureHoldProgress = 0;
+  let gestureLastFrameT = null;
+  let gestureConfirmed = false;
+  let gestureAdvanceTimeout = null;
+
+  let lastStepLabel = '';
+  let lastTitleText = '';
+  let lastHintText = '';
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+  const startBtn = document.getElementById('start-btn');
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('status-text');
+  const coach = document.getElementById('coach');
+  const coachStepTextEl = document.getElementById('coach-step-text');
+  const coachTitleEl = document.getElementById('coach-title');
+  const coachInstrEl = document.getElementById('coach-instruction');
+  const coachHintEl = document.getElementById('coach-hint');
+  const resultChipEl = document.getElementById('result-chip');
+  const stepProgressEl = document.getElementById('step-progress');
+  const stepProgressFillEl = document.getElementById('step-progress-fill');
+  const remeasureBtn = document.getElementById('remeasure-btn');
+
+  let pairs = [];
+
+  // ───────── Load fit guide from endpoint, fall back to mock, then prepend torso ─────────
   async function loadFitGuide() {
-    // Live endpoint first
     try {
       const r = await fetch('/api/fit-guide', {
         method: 'POST',
@@ -261,235 +392,484 @@
       if (!data.guide) throw new Error('Response missing guide field');
       fitGuide = data.guide;
       console.log('Loaded fit guide from /api/fit-guide:', fitGuide);
-      return;
     } catch (e) {
       console.warn('Live endpoint failed, falling back to mock:', e);
-    }
-
-    // Static mock fallback
-    try {
-      const r = await fetch('./fit-guide-mock.json');
-      fitGuide = await r.json();
-      console.log('Loaded fit guide from mock:', fitGuide);
-    } catch (e) {
-      console.warn('Could not load fit-guide-mock.json:', e);
-      fitGuide = { product: "Fallback", steps: [
-        { name: "Locate marker", title: "LOCATE MARKER", instruction: "Print marker, tape to strap, frame yourself.", overlay: null }
-      ]};
-    }
-  }
-
-  // ───────── AR overlay builder ─────────
-  // Reads step.overlay and constructs A-Frame entities inside #overlay-group.
-  // Clears any previous step's geometry first. Safe to call repeatedly.
-  function buildOverlay(step) {
-    const group = document.getElementById('overlay-group');
-    // Clear previous step's geometry
-    while (group.firstChild) group.removeChild(group.firstChild);
-
-    if (!step.overlay) return;
-    const ov = step.overlay;
-
-    // 1. Target zone (where the strap/belt SHOULD be) — dashed green rectangle with label
-    if (ov.targetZone) {
-      const [tx, ty, tz] = ov.targetZone.position;
-      const [tw, th] = ov.targetZone.size;
-      const zoneWrap = document.createElement('a-entity');
-      zoneWrap.setAttribute('position', `${tx} ${ty} ${tz}`);
-
-      const plane = document.createElement('a-plane');
-      plane.setAttribute('color', '#c8f53e');
-      plane.setAttribute('width', tw);
-      plane.setAttribute('height', th);
-      plane.setAttribute('opacity', '0.22');
-      // gentle pulse so the eye reads it as "this is the target, not a real object"
-      plane.setAttribute('animation',
-        'property: material.opacity; from: 0.22; to: 0.38; dir: alternate; dur: 1400; loop: true; easing: easeInOutSine');
-      zoneWrap.appendChild(plane);
-
-      if (ov.targetZone.label) {
-        const label = document.createElement('a-text');
-        label.setAttribute('value', ov.targetZone.label);
-        label.setAttribute('align', 'center');
-        label.setAttribute('color', '#c8f53e');
-        label.setAttribute('width', '2');
-        label.setAttribute('position', `0 ${th / 2 + 0.08} 0`);
-        label.setAttribute('font', 'https://cdn.aframe.io/fonts/Exo2Bold.fnt');
-        zoneWrap.appendChild(label);
-      }
-      group.appendChild(zoneWrap);
-    }
-
-    // 2. Arrow from marker → target. Built from a shaft (box) + arrowhead (triangle).
-    // We compute length, midpoint, and rotation from the from→to vector so the same
-    // primitive works for arrows pointing up, sideways, diagonally — anywhere.
-    if (ov.arrow) {
-      const [fx, fy, fz] = ov.arrow.from;
-      const [tx, ty, tz] = ov.arrow.to;
-      const dx = tx - fx, dy = ty - fy;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      if (length > 0.001) {
-        const midX = (fx + tx) / 2;
-        const midY = (fy + ty) / 2;
-        // angle in degrees, measured so 0° = arrow points +Y (up).
-        // A-Frame rotates around Z to point planar geometry.
-        const angleDeg = Math.atan2(dx, dy) * (180 / Math.PI) * -1;
-
-        const arrowWrap = document.createElement('a-entity');
-        arrowWrap.setAttribute('position', `${midX} ${midY} ${fz}`);
-        arrowWrap.setAttribute('rotation', `0 0 ${angleDeg}`);
-
-        // shaft — slightly shorter than full length so head sits on top cleanly
-        const shaftLength = Math.max(0.05, length - 0.18);
-        const shaft = document.createElement('a-box');
-        shaft.setAttribute('color', '#e07a3c');
-        shaft.setAttribute('width', '0.06');
-        shaft.setAttribute('height', shaftLength);
-        shaft.setAttribute('depth', '0.01');
-        shaft.setAttribute('position', `0 ${-(length - shaftLength) / 2} 0`);
-        arrowWrap.appendChild(shaft);
-
-        // arrowhead — triangle pointing in +Y direction at the "to" end
-        const head = document.createElement('a-triangle');
-        head.setAttribute('color', '#e07a3c');
-        head.setAttribute('vertex-a', '0 0.18 0');
-        head.setAttribute('vertex-b', '-0.12 -0.05 0');
-        head.setAttribute('vertex-c', '0.12 -0.05 0');
-        head.setAttribute('position', `0 ${length / 2 - 0.05} 0`);
-        arrowWrap.appendChild(head);
-
-        group.appendChild(arrowWrap);
+      try {
+        const r = await fetch('./fit-guide-mock.json');
+        fitGuide = await r.json();
+        console.log('Loaded fit guide from mock:', fitGuide);
+      } catch (e2) {
+        console.warn('Could not load fit-guide-mock.json:', e2);
+        fitGuide = { product: "Fallback", steps: [
+          { name: "Hip belt", title: "SET THE HIP BELT", instruction: "Cinch hip belt onto your iliac crest." }
+        ]};
       }
     }
-
-    // 3. "CURRENT" label near the marker — tells user "this is where your gear is now"
-    if (ov.currentLabel) {
-      const cur = document.createElement('a-text');
-      cur.setAttribute('value', ov.currentLabel);
-      cur.setAttribute('align', 'center');
-      cur.setAttribute('color', '#e07a3c');
-      cur.setAttribute('width', '1.8');
-      cur.setAttribute('position', '0 -0.7 0');
-      cur.setAttribute('font', 'https://cdn.aframe.io/fonts/Exo2Bold.fnt');
-      group.appendChild(cur);
-    }
+    fitGuide.steps = [TORSO_STEP, ...fitGuide.steps];
   }
 
-  // ───────── Coaching card + marker-hint render ─────────
+  // ───────── Coach card render + collapse ─────────
+  function setCoachExpanded(expanded) {
+    coachExpanded = expanded;
+    coach.classList.toggle('collapsed', !expanded);
+  }
+
+  // Cached DOM writes — these fire every frame during measurement, so skip
+  // when text hasn't changed to avoid spurious reflows.
+  function setStepLabel(text) {
+    if (text === lastStepLabel) return;
+    lastStepLabel = text;
+    coachStepTextEl.textContent = text;
+  }
+  function setCoachTitle(text) {
+    if (text === lastTitleText) return;
+    lastTitleText = text;
+    coachTitleEl.textContent = text;
+  }
+
+  function showResultChip(text, withPulse) {
+    resultChipEl.textContent = text;
+    resultChipEl.style.display = '';
+    if (withPulse) {
+      resultChipEl.classList.remove('pulse');
+      void resultChipEl.offsetWidth; // force reflow so the animation restarts
+      resultChipEl.classList.add('pulse');
+    }
+  }
+  function hideResultChip() {
+    resultChipEl.style.display = 'none';
+    resultChipEl.classList.remove('pulse');
+  }
+
+  // mode: undefined (neutral), 'holding' (amber), 'confirmed' (lime)
+  function setHintText(text, mode) {
+    text = text || '';
+    if (text !== lastHintText) {
+      lastHintText = text;
+      coachHintEl.textContent = text;
+    }
+    coachHintEl.classList.toggle('holding',   mode === 'holding');
+    coachHintEl.classList.toggle('confirmed', mode === 'confirmed');
+  }
+
   function renderStep(i) {
     if (!fitGuide || !fitGuide.steps[i]) return;
     const step = fitGuide.steps[i];
-
-    // Card text
-    document.getElementById('coach-step').textContent =
-      `Step ${i + 1} of ${fitGuide.steps.length} · ${step.name}`;
-    document.getElementById('coach-title').textContent = step.title || step.name.toUpperCase();
-    document.getElementById('coach-body').textContent = step.instruction;
+    setStepLabel(`Step ${i + 1} of ${fitGuide.steps.length} · ${step.name}`);
+    setCoachTitle(step.title || step.name.toUpperCase());
+    coachInstrEl.textContent = step.instruction;
     document.getElementById('prev-btn').disabled = (i === 0);
     document.getElementById('next-btn').textContent =
-      (i === fitGuide.steps.length - 1) ? '✓ Done' : 'Next step →';
+      (i === fitGuide.steps.length - 1) ? '✓ Done' : 'Next →';
     document.getElementById('next-btn').disabled = false;
+    setCoachExpanded(true);
+    autoCollapsedThisStep = false;
 
-    // Marker-placement hint — only show when it changes between steps
-    const hintEl = document.getElementById('marker-hint');
-    const hint = step.marker_placement_hint;
-    if (hint && hint !== lastMarkerHint) {
-      hintEl.textContent = hint;
-      hintEl.classList.remove('hidden');
-      lastMarkerHint = hint;
-      // auto-dismiss after 4s so it doesn't clutter the demo
-      clearTimeout(window._hintTimeout);
-      window._hintTimeout = setTimeout(() => hintEl.classList.add('hidden'), 4000);
-    } else if (!hint) {
-      hintEl.classList.add('hidden');
+    // Step-specific UI reset.
+    resetGestureState();
+    stepProgressFillEl.style.width = '0%';
+    if (i === 0) {
+      // Torso step: re-measure button + locked chip + clear hint
+      if (torsoResult) {
+        setStepLabel('Step 1 · Torso');
+        showResultChip(torsoResult, false); // no pulse on plain re-entry
+        remeasureBtn.style.display = '';
+        stepProgressEl.classList.remove('visible', 'invalid');
+      } else {
+        hideResultChip();
+        remeasureBtn.style.display = 'none';
+      }
+      setHintText('');
+      // Reset wall-clock so a stale dt from before the step change doesn't apply.
+      torsoLastFrameT = null;
+    } else {
+      // Gear step: hide torso UI, show gesture hint if enabled.
+      hideResultChip();
+      remeasureBtn.style.display = 'none';
+      stepProgressEl.classList.remove('visible', 'invalid');
+      const enabled = GESTURE_ENABLED[step.name];
+      setHintText(enabled ? GESTURE_HINTS[step.name] : '');
     }
-
-    // AR geometry
-    buildOverlay(step);
   }
 
-  // ───────── Splash & start ─────────
- document.getElementById('start-btn').addEventListener('click', async () => {
-  document.getElementById('splash').classList.add('hidden');
-
-  // MindAR auto-starts on scene load in this build, so we don't manually start.
-  // Just load the fit guide; the camera should already be running.
-  await loadFitGuide();
-  if (isTracking) renderStep(currentStep);
-
-  // Belt-and-suspenders: force the MindAR-injected video to be visible.
-  // MindAR mounts a <video> element on the page but its CSS layering on iOS
-  // sometimes puts it behind the WebGL canvas. Force it on top of the page
-  // background but under the AR overlay.
-  const v = document.querySelector('video');
-if (v) {
-  v.style.position = 'fixed';
-  v.style.top = '0';
-  v.style.left = '0';
-  v.style.width = '100vw';
-  v.style.height = '100vh';
-  v.style.objectFit = 'cover';
-  v.style.zIndex = '0';
-}
-
-// Ensure WebGL canvas (AR geometry) sits above video but below #ui (z-index: 10)
-const canvas = document.querySelector('a-scene canvas');
-if (canvas) {
-  canvas.style.position = 'fixed';
-  canvas.style.top = '0';
-  canvas.style.left = '0';
-  canvas.style.zIndex = '5';
-}
-});
-
-  // ───────── Tracking events ─────────
-  window.addEventListener('DOMContentLoaded', () => {
-    const sceneEl = document.querySelector('a-scene');
-    sceneEl.addEventListener('loaded', () => {
-      const target = document.querySelector('#target');
-      const statusEl = document.getElementById('status');
-      const statusText = document.getElementById('status-text');
-      const coach = document.getElementById('coach');
-
-      target.addEventListener('targetFound', () => {
-        isTracking = true;
-        statusEl.classList.add('tracking');
-        statusText.textContent = 'MARKER LOCKED';
-        coach.classList.remove('hidden');
-        if (fitGuide) renderStep(currentStep);
+  // ───────── MoveNet init ─────────
+  async function initDetector() {
+    try {
+      hud.textContent = 'loading tfjs…';
+      await tf.setBackend('webgl');
+      await tf.ready();
+      hud.textContent = 'loading MoveNet…';
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
       });
+      pairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+      hud.textContent = 'model ready';
+      startBtn.disabled = false;
+      startBtn.textContent = 'Start camera';
+      statusText.textContent = 'READY';
+    } catch (e) {
+      hud.textContent = `model load failed\n${e.message || e}`;
+      startBtn.textContent = 'Model failed';
+    }
+  }
 
-      target.addEventListener('targetLost', () => {
-        isTracking = false;
-        statusEl.classList.remove('tracking');
-        statusText.textContent = 'SCANNING';
-        coach.classList.add('hidden');
+  async function startCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
       });
-    });
+      video.srcObject = stream;
+      await video.play();
+      // Canvas pixel buffer matches camera native res; CSS scales it to fit the stage.
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      if (!running) { running = true; loop(); }
+    } catch (e) {
+      hud.textContent = `camera failed\n${e.name}: ${e.message}\n(need https/localhost + permission)`;
+    }
+  }
 
-    // ───────── Step nav ─────────
-    document.getElementById('next-btn').addEventListener('click', () => {
-      if (!fitGuide) return;
-      if (currentStep < fitGuide.steps.length - 1) {
-        currentStep++;
-        renderStep(currentStep);
+  // ───────── Torso: stance gate + held-over-time measurement ─────────
+  function dist(ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function bucketTorso(ratio) {
+    if (ratio < TORSO_SHORT_MAX) return 'Short';
+    if (ratio > TORSO_LONG_MIN) return 'Long';
+    return 'Regular';
+  }
+
+  // Validate stance every frame. Returns { valid, ratio? } — ratio is the
+  // torso/shoulder ratio when valid, ready to be pushed to samples.
+  function checkStance(kps) {
+    if (!kps) return { valid: false };
+    const lS = kps[5], rS = kps[6], lH = kps[11], rH = kps[12], lK = kps[13], rK = kps[14];
+    if (lS.score < MIN_CONF || rS.score < MIN_CONF ||
+        lH.score < MIN_CONF || rH.score < MIN_CONF ||
+        lK.score < MIN_CONF || rK.score < MIN_CONF) return { valid: false };
+
+    const shoulderMidX = (lS.x + rS.x) / 2;
+    const shoulderMidY = (lS.y + rS.y) / 2;
+    const hipMidX = (lH.x + rH.x) / 2;
+    const hipMidY = (lH.y + rH.y) / 2;
+    const kneeMidY = (lK.y + rK.y) / 2;
+    const shoulderWidth = dist(lS.x, lS.y, rS.x, rS.y);
+    if (shoulderWidth < 1) return { valid: false };
+
+    // Standing: hipMid clearly above kneeMid in image (image y grows downward,
+    // so kneeMid.y > hipMid.y). Require a margin so a small jitter doesn't pass.
+    if ((kneeMidY - hipMidY) < 0.2 * shoulderWidth) return { valid: false };
+
+    // Upright: shoulders above hips with normal spacing (not crouched, not lying).
+    const torsoLen = hipMidY - shoulderMidY;
+    if (torsoLen < 0.5 * shoulderWidth) return { valid: false };
+
+    // Square to camera: shoulders roughly level.
+    if (Math.abs(lS.y - rS.y) > 0.08 * shoulderWidth) return { valid: false };
+
+    // Torso vertical: shoulder-mid x roughly aligned with hip-mid x (no lean).
+    if (Math.abs(shoulderMidX - hipMidX) > 0.15 * shoulderWidth) return { valid: false };
+
+    return { valid: true, ratio: torsoLen / shoulderWidth };
+  }
+
+  function lockTorsoResult() {
+    const sorted = [...torsoSamples].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    torsoResult = bucketTorso(median);
+    setStepLabel('Step 1 · Torso');
+    showResultChip(torsoResult, true); // pulse on the one-time lock
+    setCoachTitle(TORSO_STEP.title);
+    stepProgressEl.classList.remove('visible', 'invalid');
+    remeasureBtn.style.display = '';
+    console.log(`[torso] median=${median.toFixed(3)} samples=${sorted.length} bucket=${torsoResult}`);
+  }
+
+  function tickTorso(now, kps) {
+    if (torsoResult) return;
+    const dt = torsoLastFrameT == null ? 0 : (now - torsoLastFrameT);
+    torsoLastFrameT = now;
+    // Guard against huge gaps (tab backgrounded, just re-entered step).
+    if (dt > 250) return;
+
+    const stance = checkStance(kps);
+    stepProgressEl.classList.add('visible');
+
+    if (stance.valid) {
+      torsoHoldProgress = Math.min(1, torsoHoldProgress + dt / TORSO_HOLD_MS);
+      torsoSamples.push(stance.ratio);
+      stepProgressEl.classList.remove('invalid');
+      setCoachTitle('Measuring — Hold Still');
+      stepProgressFillEl.style.width = `${(torsoHoldProgress * 100).toFixed(1)}%`;
+      if (torsoHoldProgress >= 1) lockTorsoResult();
+    } else {
+      torsoHoldProgress = Math.max(0, torsoHoldProgress - (dt / TORSO_HOLD_MS) * TORSO_DECAY_RATE);
+      if (torsoHoldProgress === 0) torsoSamples = [];
+      stepProgressEl.classList.add('invalid');
+      setCoachTitle('Stand Square & Still');
+      stepProgressFillEl.style.width = `${(torsoHoldProgress * 100).toFixed(1)}%`;
+    }
+  }
+
+  // ───────── Gesture-advance (gear steps only) ─────────
+  // Returns true when the gesture for `stepName` is currently held, false otherwise.
+  // All distance checks are normalized by shoulder width S so they're scale-invariant.
+  // Only the keypoints actually used per gesture are confidence-gated — keeps it
+  // robust when, e.g., the user's legs are out of frame.
+  function detectGesture(stepName, kps) {
+    if (!kps) return false;
+    const lS = kps[5], rS = kps[6];
+    if (lS.score < MIN_CONF || rS.score < MIN_CONF) return false;
+    const S = dist(lS.x, lS.y, rS.x, rS.y);
+    if (S < 1) return false;
+    const NEAR = (GESTURE_NEAR_FACTORS[stepName] ?? 0.40) * S;
+
+    switch (stepName) {
+      case 'Hip belt': {
+        // Same-side wrist→hip: catches akimbo (hands on sides, elbows out)
+        // because the wrist sits next to the hip keypoint, not at its midline.
+        const lW = kps[9], rW = kps[10], lH = kps[11], rH = kps[12];
+        if (lW.score < MIN_CONF || rW.score < MIN_CONF ||
+            lH.score < MIN_CONF || rH.score < MIN_CONF) return false;
+        return dist(lW.x, lW.y, lH.x, lH.y) < NEAR &&
+               dist(rW.x, rW.y, rH.x, rH.y) < NEAR;
+      }
+      case 'Shoulder straps': {
+        // Same-side wrist→shoulder. Mimics the actual strap-snug motion.
+        const lW = kps[9], rW = kps[10];
+        if (lW.score < MIN_CONF || rW.score < MIN_CONF) return false;
+        return dist(lW.x, lW.y, lS.x, lS.y) < NEAR &&
+               dist(rW.x, rW.y, rS.x, rS.y) < NEAR;
+      }
+      case 'Load lifters': {
+        // Both wrists above their same-side shoulder. Image y grows downward,
+        // so "above" means smaller y. Positional — no distance threshold.
+        const lW = kps[9], rW = kps[10];
+        if (lW.score < MIN_CONF || rW.score < MIN_CONF) return false;
+        return lW.y < lS.y && rW.y < rS.y;
+      }
+      case 'Sternum strap': {
+        // Three checks: wrists together, centered horizontally on the body,
+        // and held vertically between the shoulder line and hip line.
+        const lW = kps[9], rW = kps[10], lH = kps[11], rH = kps[12];
+        if (lW.score < MIN_CONF || rW.score < MIN_CONF ||
+            lH.score < MIN_CONF || rH.score < MIN_CONF) return false;
+        if (dist(lW.x, lW.y, rW.x, rW.y) > NEAR) return false;
+        const wMidX = (lW.x + rW.x) / 2;
+        const shoulderMidX = (lS.x + rS.x) / 2;
+        if (Math.abs(wMidX - shoulderMidX) > GESTURE_STERNUM_MID_FACTOR * S) return false;
+        const wMidY = (lW.y + rW.y) / 2;
+        const shoulderMidY = (lS.y + rS.y) / 2;
+        const hipMidY = (lH.y + rH.y) / 2;
+        return wMidY > shoulderMidY && wMidY < hipMidY;
+      }
+    }
+    return false;
+  }
+
+  function tickGesture(now, kps) {
+    if (currentStep === 0) return;
+    if (!fitGuide) return;
+    const step = fitGuide.steps[currentStep];
+    if (!step || !GESTURE_ENABLED[step.name]) return;
+    if (gestureConfirmed) return;
+
+    const dt = gestureLastFrameT == null ? 0 : (now - gestureLastFrameT);
+    gestureLastFrameT = now;
+    if (dt > 250) return;
+
+    const detected = detectGesture(step.name, kps);
+
+    if (detected) {
+      gestureHoldProgress = Math.min(1, gestureHoldProgress + dt / GESTURE_HOLD_MS);
+      setHintText('Hold the pose', 'holding');
+      if (gestureHoldProgress >= 1) {
+        gestureConfirmed = true;
+        stepProgressEl.classList.remove('invalid'); // brief lime flash
+        setHintText('✓ Confirmed', 'confirmed');
+        gestureAdvanceTimeout = setTimeout(() => {
+          gestureAdvanceTimeout = null;
+          nextBtn.click();
+        }, 260);
       } else {
-        // Last step: success state. Clear AR geometry so the marker is clean.
-        document.getElementById('coach-title').textContent = "YOU'RE FITTED ✓";
-        document.getElementById('coach-body').textContent =
-          "All steps complete. Saved to your GearSmart profile — torso measurement remembered for your next pack.";
-        document.getElementById('next-btn').disabled = true;
-        const group = document.getElementById('overlay-group');
-        while (group.firstChild) group.removeChild(group.firstChild);
+        stepProgressEl.classList.add('invalid');
       }
-    });
-    document.getElementById('prev-btn').addEventListener('click', () => {
-      if (currentStep > 0) {
-        currentStep--;
-        renderStep(currentStep);
+    } else {
+      gestureHoldProgress = Math.max(0, gestureHoldProgress - (dt / GESTURE_HOLD_MS) * GESTURE_DECAY_RATE);
+      setHintText(GESTURE_HINTS[step.name]);
+      stepProgressEl.classList.add('invalid');
+    }
+
+    // Only surface the bar once a hold is actually in progress.
+    stepProgressEl.classList.toggle('visible', gestureHoldProgress > 0.01 || gestureConfirmed);
+    stepProgressFillEl.style.width = `${(gestureHoldProgress * 100).toFixed(1)}%`;
+  }
+
+  function resetGestureState() {
+    gestureHoldProgress = 0;
+    gestureLastFrameT = null;
+    gestureConfirmed = false;
+    if (gestureAdvanceTimeout) {
+      clearTimeout(gestureAdvanceTimeout);
+      gestureAdvanceTimeout = null;
+    }
+  }
+
+  function resetTorsoMeasurement() {
+    torsoResult = null;
+    torsoSamples = [];
+    torsoHoldProgress = 0;
+    torsoLastFrameT = null;
+    stepProgressFillEl.style.width = '0%';
+    stepProgressEl.classList.remove('visible', 'invalid');
+    remeasureBtn.style.display = 'none';
+    hideResultChip();
+    setStepLabel('Step 1 of 5 · Torso');
+    setCoachTitle(TORSO_STEP.title);
+  }
+
+  // ───────── Per-frame draw ─────────
+  function drawSkeleton(kps) {
+    let count = 0;
+    ctx.lineWidth = 3; ctx.strokeStyle = '#9be15d';
+    for (const [a, b] of pairs) {
+      const p = kps[a], q = kps[b];
+      if (p.score < MIN_CONF || q.score < MIN_CONF) continue;
+      // Mirror x because front camera is mirrored for the user.
+      const ax = canvas.width - p.x;
+      const bx = canvas.width - q.x;
+      ctx.beginPath(); ctx.moveTo(ax, p.y); ctx.lineTo(bx, q.y); ctx.stroke();
+    }
+    for (let i = 0; i < kps.length; i++) {
+      const kp = kps[i];
+      if (kp.score < MIN_CONF) continue;
+      count++;
+      const x = canvas.width - kp.x;
+      ctx.beginPath(); ctx.arc(x, kp.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffd166'; ctx.fill();
+      ctx.strokeStyle = '#0d0f12'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    return count;
+  }
+
+  async function loop() {
+    if (!running) return;
+    const now = performance.now();
+    fps = fps * 0.9 + (1000 / (now - lastT)) * 0.1;
+    lastT = now;
+
+    ctx.save();
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    let count = 0;
+    let detectedKps = null;
+    if (detector && video.readyState >= 2) {
+      const poses = await detector.estimatePoses(video, { flipHorizontal: false });
+      if (poses[0]) {
+        detectedKps = poses[0].keypoints;
+        count = drawSkeleton(detectedKps);
       }
-    });
+    }
+    trackedCount = count;
+    // Tick the torso measurement every frame while on step 0 (so progress
+    // decays even when pose is lost). detectedKps may be null — checkStance handles that.
+    if (currentStep === 0 && !torsoResult) tickTorso(now, detectedKps);
+    // Gesture-advance for gear steps (1+). Internally short-circuits if the
+    // step's GESTURE_ENABLED flag is off — tap-only fallback with zero cost.
+    if (currentStep > 0) tickGesture(now, detectedKps);
+
+    // Status: TRACKING once enough confident keypoints are visible.
+    const isTracking = count >= 8;
+    if (isTracking) {
+      statusEl.classList.add('tracking');
+      statusText.textContent = 'TRACKING';
+    } else {
+      statusEl.classList.remove('tracking');
+      statusText.textContent = 'FRAME UP';
+    }
+    // First time we enter TRACKING on a given step, auto-collapse so the
+    // user's body isn't covered. Subsequent manual toggles win until step change.
+    if (isTracking && !wasTracking && !autoCollapsedThisStep) {
+      setCoachExpanded(false);
+      autoCollapsedThisStep = true;
+    }
+    wasTracking = isTracking;
+
+    hud.textContent =
+      `backend  ${tf.getBackend() || '—'}\n` +
+      `fps      ${fps.toFixed(0)}\n` +
+      `keypts   ${count}/17 ≥ ${MIN_CONF.toFixed(2)}`;
+
+    requestAnimationFrame(loop);
+  }
+
+  // ───────── Boot ─────────
+  startBtn.addEventListener('click', async () => {
+    document.getElementById('splash').classList.add('hidden');
+    await startCamera();
+    if (!fitGuide) await loadFitGuide();
+    coach.classList.remove('hidden');
+    renderStep(currentStep);
   });
+
+  // Buttons inside the header shouldn't trigger the header's toggle handler.
+  const nextBtn = document.getElementById('next-btn');
+  const toggleBtn = document.getElementById('toggle-btn');
+  nextBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!fitGuide) return;
+    if (currentStep < fitGuide.steps.length - 1) {
+      currentStep++;
+      renderStep(currentStep);
+    } else {
+      setCoachTitle("YOU'RE FITTED ✓");
+      coachInstrEl.textContent =
+        "All steps complete. Saved to your GearSmart profile — torso bucket remembered for your next pack.";
+      nextBtn.disabled = true;
+      setHintText('');
+      stepProgressEl.classList.remove('visible', 'invalid');
+      resetGestureState();
+      // Result state: force expanded so the user sees the summary.
+      setCoachExpanded(true);
+      autoCollapsedThisStep = true; // don't auto-collapse over the result
+    }
+  });
+  document.getElementById('prev-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (currentStep > 0) { currentStep--; renderStep(currentStep); }
+  });
+
+  remeasureBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    resetTorsoMeasurement();
+    // Collapse so the body is in view immediately for re-measuring.
+    setCoachExpanded(false);
+    autoCollapsedThisStep = true;
+  });
+
+  // Header click (or chevron) toggles expansion. User taps override auto-collapse
+  // for the remainder of the step.
+  toggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setCoachExpanded(!coachExpanded);
+    autoCollapsedThisStep = true;
+  });
+  document.getElementById('coach-header').addEventListener('click', () => {
+    setCoachExpanded(!coachExpanded);
+    autoCollapsedThisStep = true;
+  });
+
+  // Tap HUD to hide it during demos.
+  hud.addEventListener('click', () => hud.classList.add('hidden'));
+
+  initDetector();
 </script>
 
 </body>

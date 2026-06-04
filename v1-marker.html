@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>GearSmart · Fit Guide v0.2</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- A-Frame + MindAR (image tracking flavor) loaded from CDN -->
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #1a1310; font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif; color: #faf3e3; }
+
+  /* ===== overlay UI ===== */
+  #ui {
+    position: fixed; inset: 0; z-index: 10; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+
+  #top-bar {
+    margin: 16px; padding: 12px 16px;
+    background: rgba(26, 19, 16, 0.85); backdrop-filter: blur(8px);
+    border-radius: 12px; border: 1px solid rgba(224, 122, 60, 0.35);
+    display: flex; justify-content: space-between; align-items: center;
+    pointer-events: auto;
+  }
+  #logo {
+    font-family: "Bebas Neue", Impact, sans-serif;
+    font-size: 22px; letter-spacing: 0.5px; line-height: 1;
+  }
+  .logo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.logo-link:hover {
+  opacity: 0.85;
+}
+.back-arrow {
+  font-family: ui-monospace, monospace;
+  font-size: 18px;
+  color: #e07a3c;
+  font-weight: 500;
+}
+  #logo .smart { color: #e07a3c; }
+  #status {
+    font-family: ui-monospace, "SF Mono", "DM Mono", Consolas, monospace;
+    font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase;
+    padding: 5px 10px; border-radius: 16px;
+    background: rgba(243, 234, 216, 0.1); color: rgba(243, 234, 216, 0.7);
+  }
+  #status.tracking {
+    background: #c8f53e; color: #1a1310; font-weight: 600;
+  }
+  #status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 6px; vertical-align: middle; opacity: 0.6; }
+  #status.tracking .dot { opacity: 1; }
+
+  /* ===== marker-placement hint (appears between top bar and coach card) ===== */
+  #marker-hint {
+    margin: 0 16px;
+    padding: 8px 14px;
+    background: rgba(200, 245, 62, 0.12);
+    border: 1px solid rgba(200, 245, 62, 0.35);
+    border-radius: 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px; line-height: 1.4;
+    color: #c8f53e;
+    letter-spacing: 0.4px;
+    pointer-events: auto;
+    transition: opacity 0.3s ease;
+  }
+  #marker-hint.hidden { opacity: 0; pointer-events: none; }
+  #marker-hint::before {
+    content: "↻ MOVE MARKER · ";
+    font-weight: 600;
+    opacity: 0.8;
+  }
+
+  /* ===== bottom coaching card ===== */
+  #coach {
+    margin: 16px;
+    background: rgba(26, 19, 16, 0.92); backdrop-filter: blur(8px);
+    border-radius: 14px; border: 1px solid rgba(224, 122, 60, 0.4);
+    border-left: 4px solid #e07a3c;
+    padding: 16px 18px 18px;
+    pointer-events: auto;
+    transition: opacity 0.3s ease;
+  }
+  #coach.hidden { opacity: 0.55; }
+  #coach-step {
+    font-family: ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase;
+    color: #e07a3c; margin-bottom: 6px;
+  }
+  #coach-title {
+    font-family: "Bebas Neue", Impact, sans-serif;
+    font-size: 24px; line-height: 1; margin-bottom: 8px;
+    letter-spacing: 0.4px;
+  }
+  #coach-body {
+    font-size: 14px; line-height: 1.45;
+    color: rgba(243, 234, 216, 0.85);
+    margin-bottom: 12px;
+  }
+  #coach-controls { display: flex; gap: 8px; }
+  .btn {
+    flex: 1;
+    padding: 10px 14px; border-radius: 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
+    background: transparent; color: #faf3e3;
+    border: 1px solid rgba(243, 234, 216, 0.3);
+    cursor: pointer; touch-action: manipulation;
+  }
+  .btn.primary {
+    background: #e07a3c; color: #1a1310; border-color: #e07a3c;
+    font-weight: 600;
+  }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ===== startup splash ===== */
+  #splash {
+    position: fixed; inset: 0; z-index: 20;
+    background: #1a1310;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 32px; text-align: center;
+  }
+  #splash.hidden { display: none; }
+  #splash h1 {
+    font-family: "Bebas Neue", Impact, sans-serif;
+    font-size: 56px; line-height: 1; margin-bottom: 8px; letter-spacing: 0.5px;
+  }
+  #splash h1 .accent { color: #e07a3c; }
+  #splash p {
+    color: rgba(243, 234, 216, 0.7);
+    margin-bottom: 32px; max-width: 320px; line-height: 1.5; font-size: 14px;
+  }
+  #start-btn {
+    background: #e07a3c; color: #1a1310;
+    border: none; border-radius: 999px;
+    padding: 14px 28px;
+    font-family: ui-monospace, monospace;
+    font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 600;
+    cursor: pointer;
+  }
+  #splash .small {
+    margin-top: 24px; font-size: 11px; color: rgba(243, 234, 216, 0.4);
+    font-family: ui-monospace, monospace; letter-spacing: 1.2px; text-transform: uppercase;
+  }
+
+  /* hide a-frame's default debug UI */
+  .a-enter-vr, .a-orientation-modal { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ────────── SPLASH ────────── -->
+<div id="splash">
+  <h1>FIT GUIDE<br><span class="accent">v0.2</span></h1>
+  <p>Point your phone at the GearSmart fit marker taped to your pack. Overlays will appear once the marker is recognized.</p>
+  <button id="start-btn">Start camera</button>
+  <div class="small">Prototype · Z Goingco · Wk 13</div>
+</div>
+
+<!-- ────────── A-FRAME SCENE ────────── -->
+<a-scene
+  mindar-image="imageTargetSrc: ./marker.mind; autoStart: true; uiScanning: no; uiLoading: no; uiError: no; maxTrack: 1; warmupTolerance: 5; missTolerance: 5;"
+  color-space="sRGB"
+  renderer="colorManagement: true, physicallyCorrectLights: true, alpha: true"
+  vr-mode-ui="enabled: false"
+  device-orientation-permission-ui="enabled: false"
+>
+  <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+  <!-- Reusable assets so we don't refetch the font per primitive -->
+  <a-assets>
+    <!-- font reference used by buildOverlay() -->
+  </a-assets>
+
+  <!-- The tracked target.
+       NOTE: All AR geometry is now built dynamically inside #overlay-group
+       by buildOverlay() in JS. The pulsing ring stays static — it's the
+       "you found the marker" confirmation and persists across all steps. -->
+  <a-entity id="target" mindar-image-target="targetIndex: 0">
+
+    <!-- Static: pulsing ring around the marker, same on every step -->
+    <a-ring
+      color="#e07a3c"
+      radius-inner="0.55"
+      radius-outer="0.6"
+      opacity="0.85"
+      animation="property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 1200; loop: true; easing: easeInOutSine"
+    ></a-ring>
+
+    <!-- Dynamic: per-step overlay group, rebuilt by buildOverlay() -->
+    <a-entity id="overlay-group"></a-entity>
+
+  </a-entity>
+</a-scene>
+
+<!-- ────────── UI OVERLAY ────────── -->
+<div id="ui">
+  <div id="top-bar">
+    <a href="https://gear-smart.vercel.app/index.html"
+      id="logo"
+      class="logo-link"
+      title="Back to GearSmart">
+      <span class="back-arrow">←</span>
+      <span class="logo-wordmark">Gear<span class="smart">Smart</span></span>
+    </a>
+    <div id="status"><span class="dot"></span><span id="status-text">SCANNING</span></div>
+  </div>
+
+  <!-- Marker placement hint slot — populated per step, hidden when same as previous -->
+  <div id="marker-hint" class="hidden"></div>
+
+  <div id="coach" class="hidden">
+    <div id="coach-step">Step 1 · Loading…</div>
+    <div id="coach-title">LOCATE YOUR MARKER</div>
+    <div id="coach-body">
+      Tape the printed marker to your hip belt, then frame yourself in a mirror.
+    </div>
+    <div id="coach-controls">
+      <button class="btn" id="prev-btn" disabled>← Prev</button>
+      <button class="btn primary" id="next-btn">Next step →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ───────── State ─────────
+  let fitGuide = null;
+  let currentStep = 0;
+  let isTracking = false;
+  let lastMarkerHint = null; // so we only show the "move marker" prompt when it changes
+
+  // ───────── Load fit guide from endpoint, fall back to mock ─────────
+  async function loadFitGuide() {
+    // Live endpoint first
+    try {
+      const r = await fetch('/api/fit-guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_name: 'Patagonia Black Hole MLC',
+          torso_in: 19,
+          shoulder_width_in: 16
+        })
+      });
+      if (!r.ok) throw new Error(`Endpoint returned ${r.status}`);
+      const data = await r.json();
+      if (!data.guide) throw new Error('Response missing guide field');
+      fitGuide = data.guide;
+      console.log('Loaded fit guide from /api/fit-guide:', fitGuide);
+      return;
+    } catch (e) {
+      console.warn('Live endpoint failed, falling back to mock:', e);
+    }
+
+    // Static mock fallback
+    try {
+      const r = await fetch('./fit-guide-mock.json');
+      fitGuide = await r.json();
+      console.log('Loaded fit guide from mock:', fitGuide);
+    } catch (e) {
+      console.warn('Could not load fit-guide-mock.json:', e);
+      fitGuide = { product: "Fallback", steps: [
+        { name: "Locate marker", title: "LOCATE MARKER", instruction: "Print marker, tape to strap, frame yourself.", overlay: null }
+      ]};
+    }
+  }
+
+  // ───────── AR overlay builder ─────────
+  // Reads step.overlay and constructs A-Frame entities inside #overlay-group.
+  // Clears any previous step's geometry first. Safe to call repeatedly.
+  function buildOverlay(step) {
+    const group = document.getElementById('overlay-group');
+    // Clear previous step's geometry
+    while (group.firstChild) group.removeChild(group.firstChild);
+
+    if (!step.overlay) return;
+    const ov = step.overlay;
+
+    // 1. Target zone (where the strap/belt SHOULD be) — dashed green rectangle with label
+    if (ov.targetZone) {
+      const [tx, ty, tz] = ov.targetZone.position;
+      const [tw, th] = ov.targetZone.size;
+      const zoneWrap = document.createElement('a-entity');
+      zoneWrap.setAttribute('position', `${tx} ${ty} ${tz}`);
+
+      const plane = document.createElement('a-plane');
+      plane.setAttribute('color', '#c8f53e');
+      plane.setAttribute('width', tw);
+      plane.setAttribute('height', th);
+      plane.setAttribute('opacity', '0.22');
+      // gentle pulse so the eye reads it as "this is the target, not a real object"
+      plane.setAttribute('animation',
+        'property: material.opacity; from: 0.22; to: 0.38; dir: alternate; dur: 1400; loop: true; easing: easeInOutSine');
+      zoneWrap.appendChild(plane);
+
+      if (ov.targetZone.label) {
+        const label = document.createElement('a-text');
+        label.setAttribute('value', ov.targetZone.label);
+        label.setAttribute('align', 'center');
+        label.setAttribute('color', '#c8f53e');
+        label.setAttribute('width', '2');
+        label.setAttribute('position', `0 ${th / 2 + 0.08} 0`);
+        label.setAttribute('font', 'https://cdn.aframe.io/fonts/Exo2Bold.fnt');
+        zoneWrap.appendChild(label);
+      }
+      group.appendChild(zoneWrap);
+    }
+
+    // 2. Arrow from marker → target. Built from a shaft (box) + arrowhead (triangle).
+    // We compute length, midpoint, and rotation from the from→to vector so the same
+    // primitive works for arrows pointing up, sideways, diagonally — anywhere.
+    if (ov.arrow) {
+      const [fx, fy, fz] = ov.arrow.from;
+      const [tx, ty, tz] = ov.arrow.to;
+      const dx = tx - fx, dy = ty - fy;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length > 0.001) {
+        const midX = (fx + tx) / 2;
+        const midY = (fy + ty) / 2;
+        // angle in degrees, measured so 0° = arrow points +Y (up).
+        // A-Frame rotates around Z to point planar geometry.
+        const angleDeg = Math.atan2(dx, dy) * (180 / Math.PI) * -1;
+
+        const arrowWrap = document.createElement('a-entity');
+        arrowWrap.setAttribute('position', `${midX} ${midY} ${fz}`);
+        arrowWrap.setAttribute('rotation', `0 0 ${angleDeg}`);
+
+        // shaft — slightly shorter than full length so head sits on top cleanly
+        const shaftLength = Math.max(0.05, length - 0.18);
+        const shaft = document.createElement('a-box');
+        shaft.setAttribute('color', '#e07a3c');
+        shaft.setAttribute('width', '0.06');
+        shaft.setAttribute('height', shaftLength);
+        shaft.setAttribute('depth', '0.01');
+        shaft.setAttribute('position', `0 ${-(length - shaftLength) / 2} 0`);
+        arrowWrap.appendChild(shaft);
+
+        // arrowhead — triangle pointing in +Y direction at the "to" end
+        const head = document.createElement('a-triangle');
+        head.setAttribute('color', '#e07a3c');
+        head.setAttribute('vertex-a', '0 0.18 0');
+        head.setAttribute('vertex-b', '-0.12 -0.05 0');
+        head.setAttribute('vertex-c', '0.12 -0.05 0');
+        head.setAttribute('position', `0 ${length / 2 - 0.05} 0`);
+        arrowWrap.appendChild(head);
+
+        group.appendChild(arrowWrap);
+      }
+    }
+
+    // 3. "CURRENT" label near the marker — tells user "this is where your gear is now"
+    if (ov.currentLabel) {
+      const cur = document.createElement('a-text');
+      cur.setAttribute('value', ov.currentLabel);
+      cur.setAttribute('align', 'center');
+      cur.setAttribute('color', '#e07a3c');
+      cur.setAttribute('width', '1.8');
+      cur.setAttribute('position', '0 -0.7 0');
+      cur.setAttribute('font', 'https://cdn.aframe.io/fonts/Exo2Bold.fnt');
+      group.appendChild(cur);
+    }
+  }
+
+  // ───────── Coaching card + marker-hint render ─────────
+  function renderStep(i) {
+    if (!fitGuide || !fitGuide.steps[i]) return;
+    const step = fitGuide.steps[i];
+
+    // Card text
+    document.getElementById('coach-step').textContent =
+      `Step ${i + 1} of ${fitGuide.steps.length} · ${step.name}`;
+    document.getElementById('coach-title').textContent = step.title || step.name.toUpperCase();
+    document.getElementById('coach-body').textContent = step.instruction;
+    document.getElementById('prev-btn').disabled = (i === 0);
+    document.getElementById('next-btn').textContent =
+      (i === fitGuide.steps.length - 1) ? '✓ Done' : 'Next step →';
+    document.getElementById('next-btn').disabled = false;
+
+    // Marker-placement hint — only show when it changes between steps
+    const hintEl = document.getElementById('marker-hint');
+    const hint = step.marker_placement_hint;
+    if (hint && hint !== lastMarkerHint) {
+      hintEl.textContent = hint;
+      hintEl.classList.remove('hidden');
+      lastMarkerHint = hint;
+      // auto-dismiss after 4s so it doesn't clutter the demo
+      clearTimeout(window._hintTimeout);
+      window._hintTimeout = setTimeout(() => hintEl.classList.add('hidden'), 4000);
+    } else if (!hint) {
+      hintEl.classList.add('hidden');
+    }
+
+    // AR geometry
+    buildOverlay(step);
+  }
+
+  // ───────── Splash & start ─────────
+ document.getElementById('start-btn').addEventListener('click', async () => {
+  document.getElementById('splash').classList.add('hidden');
+
+  // MindAR auto-starts on scene load in this build, so we don't manually start.
+  // Just load the fit guide; the camera should already be running.
+  await loadFitGuide();
+  if (isTracking) renderStep(currentStep);
+
+  // Belt-and-suspenders: force the MindAR-injected video to be visible.
+  // MindAR mounts a <video> element on the page but its CSS layering on iOS
+  // sometimes puts it behind the WebGL canvas. Force it on top of the page
+  // background but under the AR overlay.
+  const v = document.querySelector('video');
+if (v) {
+  v.style.position = 'fixed';
+  v.style.top = '0';
+  v.style.left = '0';
+  v.style.width = '100vw';
+  v.style.height = '100vh';
+  v.style.objectFit = 'cover';
+  v.style.zIndex = '0';
+}
+
+// Ensure WebGL canvas (AR geometry) sits above video but below #ui (z-index: 10)
+const canvas = document.querySelector('a-scene canvas');
+if (canvas) {
+  canvas.style.position = 'fixed';
+  canvas.style.top = '0';
+  canvas.style.left = '0';
+  canvas.style.zIndex = '5';
+}
+});
+
+  // ───────── Tracking events ─────────
+  window.addEventListener('DOMContentLoaded', () => {
+    const sceneEl = document.querySelector('a-scene');
+    sceneEl.addEventListener('loaded', () => {
+      const target = document.querySelector('#target');
+      const statusEl = document.getElementById('status');
+      const statusText = document.getElementById('status-text');
+      const coach = document.getElementById('coach');
+
+      target.addEventListener('targetFound', () => {
+        isTracking = true;
+        statusEl.classList.add('tracking');
+        statusText.textContent = 'MARKER LOCKED';
+        coach.classList.remove('hidden');
+        if (fitGuide) renderStep(currentStep);
+      });
+
+      target.addEventListener('targetLost', () => {
+        isTracking = false;
+        statusEl.classList.remove('tracking');
+        statusText.textContent = 'SCANNING';
+        coach.classList.add('hidden');
+      });
+    });
+
+    // ───────── Step nav ─────────
+    document.getElementById('next-btn').addEventListener('click', () => {
+      if (!fitGuide) return;
+      if (currentStep < fitGuide.steps.length - 1) {
+        currentStep++;
+        renderStep(currentStep);
+      } else {
+        // Last step: success state. Clear AR geometry so the marker is clean.
+        document.getElementById('coach-title').textContent = "YOU'RE FITTED ✓";
+        document.getElementById('coach-body').textContent =
+          "All steps complete. Saved to your GearSmart profile — torso measurement remembered for your next pack.";
+        document.getElementById('next-btn').disabled = true;
+        const group = document.getElementById('overlay-group');
+        while (group.firstChild) group.removeChild(group.firstChild);
+      }
+    });
+    document.getElementById('prev-btn').addEventListener('click', () => {
+      if (currentStep > 0) {
+        currentStep--;
+        renderStep(currentStep);
+      }
+    });
+  });
+</script>
+
+</body>
+</html>
