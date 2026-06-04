@@ -8,14 +8,15 @@ GearSmart Fit Guide. Marker-based AR + Claude-driven coaching, running in the br
 | File | What it is | What it does |
 |---|---|---|
 | **`preview.html`** | **Static demo (safe for Zoom)** | Click-through prototype showing the AR overlay UI. Runs on your laptop. No camera, no compile needed. **Use this on screen-share.** |
-| `index.html` | The real AR scene | MindAR + A-Frame. Scans a printed marker through your phone camera and overlays the AR coach. |
+| `index.html` | The current homepage (v2) | MoveNet pose detection over CDN. Front camera, mirrored. Stance-held torso bucket + per-step gesture-advance for the four gear steps. No marker. |
+| `v1-marker.html` | The v1 marker AR scene | MindAR + A-Frame. Scans a printed marker through your phone camera and overlays the AR coach. |
 | `marker.png` | Printable AR marker | Print at ~4 in × 4 in (10 cm). Tape to your bag. |
 | `marker.mind` | Compiled tracking file | **You generate this** — see "Compile the marker" below. |
 | `fit-guide-mock.json` | Stand-in for Claude API | What `/api/fit-guide` will return in production. Powers the coaching text. |
 
 ## Recommended demo plan for tomorrow's 1-on-1
 
-You have ~8 minutes. Lead with the deck (4 slides), then screen-share `preview.html` for the visual demo. If there's time and Sunny asks "can you show the actual AR?" — open `index.html` on your phone (see Run the live AR below). If the live AR fails for any reason, the preview already told the story.
+You have ~8 minutes. Lead with the deck (4 slides), then screen-share `preview.html` for the visual demo. If there's time and Sunny asks "can you show the actual AR?" — open `v1-marker.html` on your phone (see Run the live AR below). If the live AR fails for any reason, the preview already told the story.
 
 ```
  0:00 ─ open deck slide 1
@@ -90,7 +91,8 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -node
 1. Make sure your laptop and phone are on the same WiFi
 2. Find your laptop's local IP: `ipconfig getifaddr en0` on macOS
 3. On your phone, open Safari (iOS) or Chrome (Android):
-   `https://<your-laptop-ip>:8080`
+   `https://<your-laptop-ip>:8080/v1-marker.html`
+   (Plain `:8080` now serves v2 — the front-camera pose mode — which doesn't use the marker.)
    (You'll get a security warning because of the self-signed cert — tap "Advanced" → "Proceed")
 4. Tap **Start camera**
 5. Grant camera permission
@@ -118,7 +120,7 @@ Same architecture as GearSmart's existing `/api/gear-list` endpoint — that's t
 - iOS Safari 17+ sometimes needs a hard reload after granting camera permission
 - The marker tracking is sensitive to lighting — overhead light is fine, backlit marker isn't
 - The AR overlays are placeholders (orange arrow, lime target rectangle) — Week 14 will style them properly per pack
-- No body tracking — that's deliberate (week 14 stretch goal with Teachable Machine if marker-only works first)
+- No body tracking — that's deliberate (week 14 stretch goal with Teachable Machine if marker-only works first; now shipped in v2 via MoveNet (not the originally-floated Teachable Machine) — pose mode, the homepage)
 
 ---
 
