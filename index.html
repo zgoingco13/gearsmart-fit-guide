@@ -218,7 +218,7 @@
 <div id="splash">
   <h1>FIT GUIDE<br><span class="accent">v2</span></h1>
   <p>Front camera, no marker. Stand back so your shoulders and hips both fit in frame — we'll measure your torso first, then coach you through fitting your pack.</p>
-  <button id="start-btn" disabled>Loading model…</button>
+  <button id="start-btn">Start camera</button>
   <div class="small">Prototype · Z Goingco · Pose Mode</div>
 </div>
 
@@ -291,6 +291,7 @@
   let currentStep = 0;
 
   let detector = null;
+  let detectorFailed = false;
   let stream = null;
   let running = false;
   let lastT = performance.now(), fps = 0;
@@ -509,7 +510,11 @@
       statusText.textContent = 'READY';
     } catch (e) {
       hud.textContent = `model load failed\n${e.message || e}`;
-      startBtn.textContent = 'Model failed';
+      detectorFailed = true;
+      if (!running) {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Model failed';
+      }
     }
   }
 
@@ -778,21 +783,32 @@
       }
     }
     trackedCount = count;
-    // Tick the torso measurement every frame while on step 0 (so progress
-    // decays even when pose is lost). detectedKps may be null — checkStance handles that.
-    if (currentStep === 0 && !torsoResult) tickTorso(now, detectedKps);
-    // Gesture-advance for gear steps (1+). Internally short-circuits if the
-    // step's GESTURE_ENABLED flag is off — tap-only fallback with zero cost.
-    if (currentStep > 0) tickGesture(now, detectedKps);
+    // Only run pose-dependent ticks once the detector is ready. Until then
+    // the camera is live but no skeleton/checks happen — user sees themselves.
+    if (detector) {
+      // Tick the torso measurement every frame while on step 0 (so progress
+      // decays even when pose is lost). detectedKps may be null — checkStance handles that.
+      if (currentStep === 0 && !torsoResult) tickTorso(now, detectedKps);
+      // Gesture-advance for gear steps (1+). Internally short-circuits if the
+      // step's GESTURE_ENABLED flag is off — tap-only fallback with zero cost.
+      if (currentStep > 0) tickGesture(now, detectedKps);
+    }
 
-    // Status: TRACKING once enough confident keypoints are visible.
-    const isTracking = count >= 8;
-    if (isTracking) {
-      statusEl.classList.add('tracking');
-      statusText.textContent = 'TRACKING';
-    } else {
+    // Status: while detector is null, show warming/failure; otherwise the
+    // usual TRACKING / FRAME UP based on confident keypoint count.
+    let isTracking = false;
+    if (!detector) {
       statusEl.classList.remove('tracking');
-      statusText.textContent = 'FRAME UP';
+      statusText.textContent = detectorFailed ? 'POSE FAILED' : 'WARMING UP…';
+    } else {
+      isTracking = count >= 8;
+      if (isTracking) {
+        statusEl.classList.add('tracking');
+        statusText.textContent = 'TRACKING';
+      } else {
+        statusEl.classList.remove('tracking');
+        statusText.textContent = 'FRAME UP';
+      }
     }
     // First time we enter TRACKING on a given step, auto-collapse so the
     // user's body isn't covered. Subsequent manual toggles win until step change.
