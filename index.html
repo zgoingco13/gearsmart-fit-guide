@@ -21,7 +21,7 @@
   /* ===== camera stage ===== */
   #stage { position: fixed; inset: 0; z-index: 0; background: #000; }
   #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; visibility: hidden; }
-  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
 
   /* ===== overlay UI ===== */
   #ui {
@@ -347,6 +347,12 @@
     'Load lifters':    '🙌 Hands above shoulders',
     'Sternum strap':   '🤝 Hands together at chest',
   };
+  const STANCE_HINTS = {
+    frame:   'Step Back — Show Shoulders & Hips',
+    upright: 'Stand Up Tall',
+    level:   'Level Your Shoulders',
+    lean:    'Don\u2019t Lean — Stack Shoulders Over Hips',
+  };
   let gestureHoldProgress = 0;
   let gestureLastFrameT = null;
   let gestureConfirmed = false;
@@ -546,33 +552,35 @@
   // Validate stance every frame. Returns { valid, ratio? } — ratio is the
   // torso/shoulder ratio when valid, ready to be pushed to samples.
   function checkStance(kps) {
-    if (!kps) return { valid: false };
+    if (!kps) return { valid: false, reason: 'frame' };
     const lS = kps[5], rS = kps[6], lH = kps[11], rH = kps[12], lK = kps[13], rK = kps[14];
     if (lS.score < MIN_CONF || rS.score < MIN_CONF ||
-        lH.score < MIN_CONF || rH.score < MIN_CONF ||
-        lK.score < MIN_CONF || rK.score < MIN_CONF) return { valid: false };
+        lH.score < MIN_CONF || rH.score < MIN_CONF) return { valid: false, reason: 'frame' };
 
     const shoulderMidX = (lS.x + rS.x) / 2;
     const shoulderMidY = (lS.y + rS.y) / 2;
     const hipMidX = (lH.x + rH.x) / 2;
     const hipMidY = (lH.y + rH.y) / 2;
-    const kneeMidY = (lK.y + rK.y) / 2;
     const shoulderWidth = dist(lS.x, lS.y, rS.x, rS.y);
-    if (shoulderWidth < 1) return { valid: false };
+    if (shoulderWidth < 1) return { valid: false, reason: 'frame' };
 
     // Standing: hipMid clearly above kneeMid in image (image y grows downward,
-    // so kneeMid.y > hipMid.y). Require a margin so a small jitter doesn't pass.
-    if ((kneeMidY - hipMidY) < 0.2 * shoulderWidth) return { valid: false };
+    // so kneeMid.y > hipMid.y). Only enforce when both knees are visible —
+    // tight framing (shoulders + hips only) should still validate.
+    if (lK.score >= MIN_CONF && rK.score >= MIN_CONF) {
+      const kneeMidY = (lK.y + rK.y) / 2;
+      if ((kneeMidY - hipMidY) < 0.2 * shoulderWidth) return { valid: false, reason: 'upright' };
+    }
 
     // Upright: shoulders above hips with normal spacing (not crouched, not lying).
     const torsoLen = hipMidY - shoulderMidY;
-    if (torsoLen < 0.5 * shoulderWidth) return { valid: false };
+    if (torsoLen < 0.5 * shoulderWidth) return { valid: false, reason: 'upright' };
 
     // Square to camera: shoulders roughly level.
-    if (Math.abs(lS.y - rS.y) > 0.08 * shoulderWidth) return { valid: false };
+    if (Math.abs(lS.y - rS.y) > 0.08 * shoulderWidth) return { valid: false, reason: 'level' };
 
     // Torso vertical: shoulder-mid x roughly aligned with hip-mid x (no lean).
-    if (Math.abs(shoulderMidX - hipMidX) > 0.15 * shoulderWidth) return { valid: false };
+    if (Math.abs(shoulderMidX - hipMidX) > 0.15 * shoulderWidth) return { valid: false, reason: 'lean' };
 
     return { valid: true, ratio: torsoLen / shoulderWidth };
   }
@@ -610,7 +618,7 @@
       torsoHoldProgress = Math.max(0, torsoHoldProgress - (dt / TORSO_HOLD_MS) * TORSO_DECAY_RATE);
       if (torsoHoldProgress === 0) torsoSamples = [];
       stepProgressEl.classList.add('invalid');
-      setCoachTitle('Stand Square & Still');
+      setCoachTitle(STANCE_HINTS[stance.reason] || 'Stand Square & Still');
       stepProgressFillEl.style.width = `${(torsoHoldProgress * 100).toFixed(1)}%`;
     }
   }
