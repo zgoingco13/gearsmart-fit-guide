@@ -604,7 +604,7 @@
 
   // Only surface a stance hint once the same failure reason has persisted
   // long enough — otherwise the coach title thrashes between near-misses.
-  const STANCE_DEBOUNCE_MS = 300;
+  const STANCE_REASON_DEBOUNCE_MS = 250;
   let stanceReasonCandidate = null;
   let stanceReasonCandidateSince = 0;
   let stableStanceReason = null;
@@ -613,7 +613,7 @@
       stanceReasonCandidate = reason;
       stanceReasonCandidateSince = now;
     }
-    if (now - stanceReasonCandidateSince >= STANCE_DEBOUNCE_MS) {
+    if (now - stanceReasonCandidateSince >= STANCE_REASON_DEBOUNCE_MS) {
       stableStanceReason = reason;
     }
     return stableStanceReason;
