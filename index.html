@@ -745,6 +745,25 @@
   }
 
   // ───────── Per-frame draw ─────────
+  // Display-only EMA on keypoints — softens jitter in the overlay without
+  // touching the raw values fed to checkStance/detectGesture.
+  const OVERLAY_SMOOTH = 0.35;
+  let smoothedKps = null;
+  function smoothForDisplay(kps) {
+    if (!kps) { smoothedKps = null; return null; }
+    if (!smoothedKps || smoothedKps.length !== kps.length) {
+      smoothedKps = kps.map(k => ({ x: k.x, y: k.y, score: k.score, name: k.name }));
+      return smoothedKps;
+    }
+    for (let i = 0; i < kps.length; i++) {
+      const k = kps[i], s = smoothedKps[i];
+      s.x = s.x + OVERLAY_SMOOTH * (k.x - s.x);
+      s.y = s.y + OVERLAY_SMOOTH * (k.y - s.y);
+      s.score = k.score;
+    }
+    return smoothedKps;
+  }
+
   function drawSkeleton(kps) {
     let count = 0;
     ctx.lineWidth = 3; ctx.strokeStyle = '#9be15d';
@@ -783,10 +802,12 @@
     let count = 0;
     let detectedKps = null;
     if (detector && video.readyState >= 2) {
-      const poses = await detector.estimatePoses(video, { flipHorizontal: false });
+      const poses = await detector.estimatePoses(video, { flipHorizontal: false, enableSmoothing: true });
       if (poses[0]) {
         detectedKps = poses[0].keypoints;
-        count = drawSkeleton(detectedKps);
+        count = drawSkeleton(smoothForDisplay(detectedKps));
+      } else {
+        smoothedKps = null;
       }
     }
     trackedCount = count;
