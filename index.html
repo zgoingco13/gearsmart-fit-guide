@@ -492,6 +492,7 @@
       setHintText('');
       // Reset wall-clock so a stale dt from before the step change doesn't apply.
       torsoLastFrameT = null;
+      resetStanceReasonDebounce();
     } else {
       // Gear step: hide torso UI, show gesture hint if enabled.
       hideResultChip();
@@ -601,6 +602,28 @@
     console.log(`[torso] median=${median.toFixed(3)} samples=${sorted.length} bucket=${torsoResult}`);
   }
 
+  // Only surface a stance hint once the same failure reason has persisted
+  // long enough — otherwise the coach title thrashes between near-misses.
+  const STANCE_DEBOUNCE_MS = 300;
+  let stanceReasonCandidate = null;
+  let stanceReasonCandidateSince = 0;
+  let stableStanceReason = null;
+  function debouncedStanceReason(reason, now) {
+    if (reason !== stanceReasonCandidate) {
+      stanceReasonCandidate = reason;
+      stanceReasonCandidateSince = now;
+    }
+    if (now - stanceReasonCandidateSince >= STANCE_DEBOUNCE_MS) {
+      stableStanceReason = reason;
+    }
+    return stableStanceReason;
+  }
+  function resetStanceReasonDebounce() {
+    stanceReasonCandidate = null;
+    stanceReasonCandidateSince = 0;
+    stableStanceReason = null;
+  }
+
   function tickTorso(now, kps) {
     if (torsoResult) return;
     const dt = torsoLastFrameT == null ? 0 : (now - torsoLastFrameT);
@@ -622,7 +645,8 @@
       torsoHoldProgress = Math.max(0, torsoHoldProgress - (dt / TORSO_HOLD_MS) * TORSO_DECAY_RATE);
       if (torsoHoldProgress === 0) torsoSamples = [];
       stepProgressEl.classList.add('invalid');
-      setCoachTitle(STANCE_HINTS[stance.reason] || 'Stand Square & Still');
+      const debouncedReason = debouncedStanceReason(stance.reason, now);
+      setCoachTitle(STANCE_HINTS[debouncedReason] || 'Stand Square & Still');
       stepProgressFillEl.style.width = `${(torsoHoldProgress * 100).toFixed(1)}%`;
     }
   }
@@ -736,6 +760,7 @@
     torsoSamples = [];
     torsoHoldProgress = 0;
     torsoLastFrameT = null;
+    resetStanceReasonDebounce();
     stepProgressFillEl.style.width = '0%';
     stepProgressEl.classList.remove('visible', 'invalid');
     remeasureBtn.style.display = 'none';
