@@ -292,6 +292,7 @@
 
   // ───────── State ─────────
   let fitGuide = null;
+  let gearStepsLoaded = false;
   let currentStep = 0;
 
   let detector = null;
@@ -388,6 +389,7 @@
 
   // ───────── Load fit guide from endpoint, fall back to mock, then prepend torso ─────────
   async function loadFitGuide() {
+    let gearSteps;
     try {
       const r = await fetch('/api/fit-guide', {
         method: 'POST',
@@ -401,22 +403,24 @@
       if (!r.ok) throw new Error(`Endpoint returned ${r.status}`);
       const data = await r.json();
       if (!data.guide) throw new Error('Response missing guide field');
-      fitGuide = data.guide;
-      console.log('Loaded fit guide from /api/fit-guide:', fitGuide);
+      gearSteps = data.guide.steps;
+      console.log('Loaded fit guide from /api/fit-guide:', data.guide);
     } catch (e) {
       console.warn('Live endpoint failed, falling back to mock:', e);
       try {
         const r = await fetch('./fit-guide-mock.json');
-        fitGuide = await r.json();
-        console.log('Loaded fit guide from mock:', fitGuide);
+        const mock = await r.json();
+        gearSteps = mock.steps;
+        console.log('Loaded fit guide from mock:', mock);
       } catch (e2) {
         console.warn('Could not load fit-guide-mock.json:', e2);
-        fitGuide = { product: "Fallback", steps: [
+        gearSteps = [
           { name: "Hip belt", title: "SET THE HIP BELT", instruction: "Cinch hip belt onto your iliac crest." }
-        ]};
+        ];
       }
     }
-    fitGuide.steps = [TORSO_STEP, ...fitGuide.steps];
+    fitGuide.steps = [TORSO_STEP, ...gearSteps];
+    gearStepsLoaded = true;
   }
 
   // ───────── Coach card render + collapse ─────────
@@ -463,6 +467,33 @@
     coachHintEl.classList.toggle('confirmed', mode === 'confirmed');
   }
 
+  // Coach-card states used during boot/error before the step UI takes over.
+  function showWarmingState() {
+    setStepLabel('Getting ready');
+    setCoachTitle('WARMING UP');
+    coachInstrEl.textContent = "We're loading the pose model. Stand back so your shoulders and hips both fit in frame — we'll start measuring as soon as it's ready.";
+    nextBtn.disabled = true;
+    nextBtn.textContent = 'Loading…';
+    document.getElementById('prev-btn').disabled = true;
+    hideResultChip();
+    remeasureBtn.style.display = 'none';
+    stepProgressEl.classList.remove('visible', 'invalid');
+    setHintText('');
+    setCoachExpanded(true);
+  }
+  function showCoachMessage(title, body) {
+    setStepLabel('');
+    setCoachTitle(title);
+    coachInstrEl.textContent = body;
+    nextBtn.disabled = true;
+    document.getElementById('prev-btn').disabled = true;
+    hideResultChip();
+    remeasureBtn.style.display = 'none';
+    stepProgressEl.classList.remove('visible', 'invalid');
+    setHintText('');
+    setCoachExpanded(true);
+  }
+
   function renderStep(i) {
     if (!fitGuide || !fitGuide.steps[i]) return;
     const step = fitGuide.steps[i];
@@ -494,6 +525,12 @@
       // Reset wall-clock so a stale dt from before the step change doesn't apply.
       torsoLastFrameT = null;
       resetStanceReasonDebounce();
+      // Gear steps may still be loading in the background — keep Next gated
+      // until they arrive so the user can't tap into an empty step.
+      if (!gearStepsLoaded) {
+        nextBtn.disabled = true;
+        nextBtn.textContent = 'Loading…';
+      }
     } else {
       // Gear step: hide torso UI, show gesture hint if enabled.
       hideResultChip();
@@ -886,11 +923,26 @@
 
   // ───────── Boot ─────────
   startBtn.addEventListener('click', async () => {
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting camera…';
     document.getElementById('splash').classList.add('hidden');
     await startCamera();
-    if (!fitGuide) await loadFitGuide();
+    if (!running) {
+      showCoachMessage('Camera blocked', 'Allow camera access and reload the page to try again.');
+      coach.classList.remove('hidden');
+      return;
+    }
+    showWarmingState();
     coach.classList.remove('hidden');
-    renderStep(currentStep);
+    // Fetch gear steps in the background so they're ready (or close to it)
+    // by the time the user finishes the torso measurement.
+    if (!gearStepsLoaded) loadFitGuide();
+    await detectorReady;
+    if (detectorFailed) {
+      showCoachMessage('Pose model failed', 'Reload the page to try again.');
+      return;
+    }
+    renderStep(0);
   });
 
   // Buttons inside the header shouldn't trigger the header's toggle handler.
@@ -898,6 +950,7 @@
   const toggleBtn = document.getElementById('toggle-btn');
   nextBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    if (currentStep === 0 && !gearStepsLoaded) return;
     if (!fitGuide) return;
     if (currentStep < fitGuide.steps.length - 1) {
       currentStep++;
@@ -943,7 +996,11 @@
   // Tap HUD to hide it during demos.
   hud.addEventListener('click', () => hud.classList.add('hidden'));
 
-  initDetector();
+  // Seed the guide with just the torso step so the camera/coach can run while
+  // gear steps are still being fetched. initDetector promise is captured so
+  // the start handler can await model warmup independently.
+  fitGuide = { product: 'GearSmart', steps: [TORSO_STEP] };
+  let detectorReady = initDetector();
 </script>
 
 </body>
