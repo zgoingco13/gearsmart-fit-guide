@@ -112,6 +112,20 @@
   #coach.hidden { opacity: 0; pointer-events: none; }
   #coach.collapsed { max-height: 88px; } /* slim bar — header only (incl. optional hint line) */
 
+  /* Per-step recording cue:
+       .recording — steady orange ring while the step is being captured.
+       .recorded  — five 0.36s green blinks when the step locks in. */
+  #coach.recording {
+    box-shadow: 0 0 0 2px var(--brand-orange), 0 0 18px 2px rgba(224, 122, 60, 0.45);
+  }
+  #coach.recorded {
+    animation: coach-recorded 0.36s ease-in-out 5;
+  }
+  @keyframes coach-recorded {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(200, 245, 62, 0); }
+    50%      { box-shadow: 0 0 0 3px #c8f53e, 0 0 20px 4px rgba(200, 245, 62, 0.55); }
+  }
+
   #coach-header {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 14px;
@@ -550,8 +564,34 @@
     hideResultChip();
     remeasureBtn.style.display = 'none';
     stepProgressEl.classList.remove('visible', 'invalid');
+    coach.classList.remove('recording', 'recorded');
     setHintText('');
     setCoachExpanded(true);
+  }
+
+  // Step-recorded confirmation cue: flash green on the coach card, then
+  // auto-advance. Held in a single timer so renderStep can cancel it cleanly
+  // when the user steps back or jumps elsewhere.
+  let recordedTimer = null;
+  const RECORDED_FLASH_MS = 360 * 5; // five 0.36s blinks
+  function recordAndAdvance() {
+    coach.classList.remove('recording');
+    coach.classList.add('recorded');
+    clearTimeout(recordedTimer);
+    recordedTimer = setTimeout(() => {
+      recordedTimer = null;
+      coach.classList.remove('recorded');
+      advanceWhenReady();
+    }, RECORDED_FLASH_MS);
+  }
+  function advanceWhenReady() {
+    // On step 0 we may have finished the torso measurement before the gear
+    // steps arrived — poll briefly so the auto-advance still fires once they do.
+    if (currentStep === 0 && !gearStepsLoaded) {
+      setTimeout(advanceWhenReady, 100);
+      return;
+    }
+    nextBtn.click();
   }
 
   // Re-syncs the Next button when gear steps finish loading in the background
@@ -569,6 +609,11 @@
 
   function renderStep(i) {
     if (!fitGuide || !fitGuide.steps[i]) return;
+    // Cancel any pending green-flash advance and clear the class so a re-render
+    // doesn't replay the animation or auto-jump after the user navigated.
+    clearTimeout(recordedTimer);
+    recordedTimer = null;
+    coach.classList.remove('recorded');
     const step = fitGuide.steps[i];
     setStepLabel(`Step ${i + 1} of ${fitGuide.steps.length} · ${step.name}`);
     setCoachTitle(step.title || step.name.toUpperCase());
@@ -612,6 +657,11 @@
       const enabled = GESTURE_ENABLED[step.name];
       setHintText(enabled ? GESTURE_HINTS[step.name] : '');
     }
+
+    // Recording cue: ring the coach card while the step is being captured.
+    // Skip on torso re-entry (we're just showing the already-locked result).
+    const isTorsoReentry = i === 0 && torsoResult;
+    coach.classList.toggle('recording', !isTorsoReentry);
   }
 
   // ───────── MoveNet init ─────────
@@ -715,6 +765,7 @@
     stepProgressEl.classList.remove('visible', 'invalid');
     remeasureBtn.style.display = '';
     console.log(`[torso] median=${median.toFixed(3)} samples=${sorted.length} bucket=${torsoResult}`);
+    recordAndAdvance();
   }
 
   // Only surface a stance hint once the same failure reason has persisted
@@ -842,10 +893,7 @@
         gestureConfirmed = true;
         stepProgressEl.classList.remove('invalid'); // brief lime flash
         setHintText('✓ Confirmed', 'confirmed');
-        gestureAdvanceTimeout = setTimeout(() => {
-          gestureAdvanceTimeout = null;
-          nextBtn.click();
-        }, 260);
+        recordAndAdvance();
       } else {
         stepProgressEl.classList.add('invalid');
       }
@@ -1036,6 +1084,7 @@
       nextBtn.disabled = true;
       setHintText('');
       stepProgressEl.classList.remove('visible', 'invalid');
+      coach.classList.remove('recording', 'recorded');
       resetGestureState();
       // Result state: force expanded so the user sees the summary.
       setCoachExpanded(true);
