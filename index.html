@@ -438,20 +438,29 @@
   async function loadFitGuide() {
     let gearSteps;
     try {
-      const r = await fetch('/api/fit-guide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_name: 'Patagonia Black Hole MLC',
-          torso_in: 19,
-          shoulder_width_in: 16
-        })
-      });
-      if (!r.ok) throw new Error(`Endpoint returned ${r.status}`);
-      const data = await r.json();
-      if (!data.guide) throw new Error('Response missing guide field');
-      gearSteps = data.guide.steps;
-      console.log('Loaded fit guide from /api/fit-guide:', data.guide);
+      // Time-box the live endpoint so a hung serverless cold start can't keep
+      // the user stuck on "Loading…" — fall back fast instead.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      try {
+        const r = await fetch('/api/fit-guide', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_name: 'Patagonia Black Hole MLC',
+            torso_in: 19,
+            shoulder_width_in: 16
+          }),
+          signal: controller.signal
+        });
+        if (!r.ok) throw new Error(`Endpoint returned ${r.status}`);
+        const data = await r.json();
+        if (!data.guide) throw new Error('Response missing guide field');
+        gearSteps = data.guide.steps;
+        console.log('Loaded fit guide from /api/fit-guide:', data.guide);
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (e) {
       console.warn('Live endpoint failed, falling back to mock:', e);
       try {
@@ -462,12 +471,16 @@
       } catch (e2) {
         console.warn('Could not load fit-guide-mock.json:', e2);
         gearSteps = [
-          { name: "Hip belt", title: "SET THE HIP BELT", instruction: "Cinch hip belt onto your iliac crest." }
+          { name: "Hip belt",        title: "SET THE HIP BELT",        instruction: "Cinch the hip belt onto your iliac crest — the top edge of your hip bones. It should carry most of the pack's weight." },
+          { name: "Shoulder straps", title: "SNUG THE SHOULDER STRAPS", instruction: "Tighten the shoulder straps so they hug your shoulders without lifting the load off your hips." },
+          { name: "Load lifters",    title: "SET THE LOAD LIFTERS",    instruction: "Pull the load-lifter straps until they sit at about a 45° angle from your shoulders to the pack." },
+          { name: "Sternum strap",   title: "CLIP THE STERNUM STRAP",  instruction: "Clip the sternum strap across your chest, just below your collarbone, snug but easy to breathe." }
         ];
       }
     }
     fitGuide.steps = [TORSO_STEP, ...gearSteps];
     gearStepsLoaded = true;
+    refreshNav();
   }
 
   // ───────── Coach card render + collapse ─────────
@@ -539,6 +552,19 @@
     stepProgressEl.classList.remove('visible', 'invalid');
     setHintText('');
     setCoachExpanded(true);
+  }
+
+  // Re-syncs the Next button when gear steps finish loading in the background
+  // after renderStep(0) has already painted the torso step with Loading…
+  function refreshNav() {
+    if (currentStep !== 0) return;
+    if (gearStepsLoaded) {
+      nextBtn.disabled = false;
+      nextBtn.textContent = 'Next →';
+    } else {
+      nextBtn.disabled = true;
+      nextBtn.textContent = 'Loading…';
+    }
   }
 
   function renderStep(i) {
