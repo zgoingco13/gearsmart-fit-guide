@@ -870,9 +870,17 @@
 
   // ───────── Boot ─────────
   startBtn.addEventListener('click', async () => {
-    document.getElementById('splash').classList.add('hidden');
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting camera…';
     await startCamera();
+    if (!running) {
+      startBtn.textContent = 'Camera blocked — tap to retry';
+      startBtn.disabled = false;
+      return;
+    }
+    startBtn.textContent = 'Loading fit guide…';
     if (!fitGuide) await loadFitGuide();
+    document.getElementById('splash').classList.add('hidden');
     coach.classList.remove('hidden');
     renderStep(currentStep);
   });
